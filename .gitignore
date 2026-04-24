@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+
+# Lua
+luac.out
+*.luac
+
+# Runtime
+.luarc-local.json
