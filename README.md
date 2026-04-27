@@ -2,7 +2,9 @@
 
 Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 
-v1.0: displays an animated pet sprite (8fps idle loop) in a floating window, toggled via `:Pets`.
+v1.1: an animated pet wanders along the bottom of your editor — idles, walks
+back and forth (bouncing off screen edges), and occasionally lies down to rest.
+Toggled via `:Pets`.
 
 ## Requirements
 
@@ -25,12 +27,13 @@ v1.0: displays an animated pet sprite (8fps idle loop) in a floating window, tog
 ## Usage
 
 - `:Pets` or `<leader>pp` — toggle the pet display
+- `:PetsState` — print the pet's current action / direction / position (debug)
 
 ## Roadmap
 
 - [x] v0: static sprite in a float window (toggle)
 - [x] v1.0: frame-by-frame idle animation
-- [ ] v1.1: wandering — state machine + movement (idle ↔ walk ↔ run, sprite flipping, edge handling)
+- [x] v1.1: wandering — state machine (idle ↔ walk ↔ lie), sprite flipping, edge bouncing
 - [ ] v1.2: autocmd-driven reactions (BufWritePost → happy, DiagnosticChanged → sad)
 - [ ] v1.3: multi-pet selection + position/size config via `setup({...})`
 

@@ -1,16 +1,19 @@
 local M = {}
 
+local pet = require("pets.pet")
+
 local state = {
   win = nil,
   buf = nil,
-  imgs = {},
+  cur_img = nil,    -- the image currently rendered on screen
   timer = nil,
-  frames = {},
   frame_idx = 1,
+  frames = {},      -- frames[set_name] = { path1, path2, ... }
 }
 
 local config = {
-  sprite_dir = nil,
+  sprite_root = nil,
+  sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r" },
   fps = 8,
   width = 22,
   height = 9,
@@ -24,34 +27,39 @@ local function plugin_root()
 end
 
 function M.setup(opts)
-  config.sprite_dir = opts.sprite_dir or (plugin_root() .. "/sprites/fox/idle")
+  config.sprite_root = opts.sprite_root or (plugin_root() .. "/sprites/fox")
   if opts.fps then config.fps = opts.fps end
   if opts.width then config.width = opts.width end
   if opts.height then config.height = opts.height end
 end
 
-local function discover_frames(dir)
-  local list = vim.fn.glob(dir .. "/*.png", false, true)
-  table.sort(list)
-  return list
+local function discover_frames()
+  state.frames = {}
+  for _, set_name in ipairs(config.sets) do
+    local list = vim.fn.glob(config.sprite_root .. "/" .. set_name .. "/*.png", false, true)
+    table.sort(list)
+    state.frames[set_name] = list
+  end
 end
 
-local function create_float_win()
-  local width = config.width
-  local height = config.height
-  -- Bottom-right corner, leaving a 2-cell margin from the edge
-  local row = vim.o.lines - height - 3
-  local col = vim.o.columns - width - 2
+local function compute_bounds()
+  return { col_min = 0, col_max = vim.o.columns - config.width }
+end
 
+-- A single fixed wide float window covers the bottom of the editor; the pet
+-- "wanders" by re-rendering its image at varying x offsets within this window
+-- (no nvim_win_set_config calls during movement, so no terminal redraw flicker).
+local function create_float_win()
+  local row = vim.o.lines - config.height - 3
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
 
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = width,
-    height = height,
+    width = vim.o.columns,
+    height = config.height,
     row = row,
-    col = col,
+    col = 0,
     style = "minimal",
     focusable = false,
     zindex = 50,
@@ -63,30 +71,6 @@ local function create_float_win()
   return win, buf
 end
 
--- Pre-create one image object per frame so we can render-then-clear without
--- recreating images on each tick (this eliminates the gap that causes flicker).
-local function preload_images(image_mod)
-  state.imgs = {}
-  for i, frame_path in ipairs(state.frames) do
-    state.imgs[i] = image_mod.from_file(frame_path, {
-      id = "nvim-pets-frame-" .. i,
-      window = state.win,
-      buffer = state.buf,
-      x = 0,
-      y = 0,
-      width = config.width,
-      height = config.height,
-    })
-  end
-end
-
-local function clear_all_images()
-  for _, img in ipairs(state.imgs) do
-    pcall(function() img:clear() end)
-  end
-  state.imgs = {}
-end
-
 local function stop_timer()
   if state.timer then
     pcall(function() state.timer:stop() end)
@@ -95,23 +79,50 @@ local function stop_timer()
   end
 end
 
-local function start_timer()
+local function clear_current()
+  if state.cur_img then
+    pcall(function() state.cur_img:clear() end)
+    state.cur_img = nil
+  end
+end
+
+local function master_tick(image_mod)
+  if not (state.win and vim.api.nvim_win_is_valid(state.win)) then
+    M.hide()
+    return
+  end
+
+  pet.tick(compute_bounds())
+
+  local cur_set = pet.current_set()
+  local set_frames = state.frames[cur_set]
+  if not set_frames or #set_frames == 0 then return end
+
+  local next_idx = (state.frame_idx % #set_frames) + 1
+
+  -- Build the new image at the pet's current x within the fixed wide window,
+  -- then render-then-clear so no gap appears between consecutive frames.
+  local new_img = image_mod.from_file(set_frames[next_idx], {
+    window = state.win,
+    buffer = state.buf,
+    x = pet.col(),
+    y = 0,
+    width = config.width,
+    height = config.height,
+  })
+
+  pcall(function() new_img:render() end)
+  clear_current()
+  state.cur_img = new_img
+  state.frame_idx = next_idx
+end
+
+local function start_timer(image_mod)
   stop_timer()
   state.timer = vim.uv.new_timer()
   local interval = math.floor(1000 / config.fps)
   state.timer:start(interval, interval, vim.schedule_wrap(function()
-    if not (state.win and vim.api.nvim_win_is_valid(state.win)) then
-      M.hide()
-      return
-    end
-    if #state.imgs < 2 then return end
-    local prev_idx = state.frame_idx
-    local next_idx = (prev_idx % #state.imgs) + 1
-    -- Render new frame BEFORE clearing the previous one to avoid an
-    -- empty moment between frames.
-    pcall(function() state.imgs[next_idx]:render() end)
-    pcall(function() state.imgs[prev_idx]:clear() end)
-    state.frame_idx = next_idx
+    master_tick(image_mod)
   end))
 end
 
@@ -126,28 +137,46 @@ function M.show()
     return
   end
 
-  if vim.fn.isdirectory(config.sprite_dir) == 0 then
-    vim.notify("nvim-pets: sprite dir not found: " .. config.sprite_dir, vim.log.levels.ERROR)
+  if vim.fn.isdirectory(config.sprite_root) == 0 then
+    vim.notify("nvim-pets: sprite root not found: " .. config.sprite_root, vim.log.levels.ERROR)
     return
   end
 
-  state.frames = discover_frames(config.sprite_dir)
-  if #state.frames == 0 then
-    vim.notify("nvim-pets: no frames found in " .. config.sprite_dir, vim.log.levels.ERROR)
+  discover_frames()
+  if not state.frames["idle_l"] or #state.frames["idle_l"] == 0 then
+    vim.notify("nvim-pets: no frames found in " .. config.sprite_root, vim.log.levels.ERROR)
     return
   end
 
   state.win, state.buf = create_float_win()
+
+  -- Start position: right side of the screen.
+  local start_col = vim.o.columns - config.width - 2
+  pet.init(start_col, 0)
   state.frame_idx = 1
 
-  preload_images(image)
-  pcall(function() state.imgs[1]:render() end)
-  start_timer()
+  -- Initial render so the pet is visible before the first timer tick.
+  local initial_set = pet.current_set()
+  local initial_frames = state.frames[initial_set]
+  if initial_frames and initial_frames[1] then
+    local img = image.from_file(initial_frames[1], {
+      window = state.win,
+      buffer = state.buf,
+      x = pet.col(),
+      y = 0,
+      width = config.width,
+      height = config.height,
+    })
+    pcall(function() img:render() end)
+    state.cur_img = img
+  end
+
+  start_timer(image)
 end
 
 function M.hide()
   stop_timer()
-  clear_all_images()
+  clear_current()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -162,6 +191,14 @@ function M.toggle()
   else
     M.show()
   end
+end
+
+-- Expose pet state for the optional :PetsState debug command.
+function M.debug_state()
+  return string.format(
+    "action=%s dir=%s pos=(%d,%d)",
+    pet.action(), pet.dir(), pet.row(), pet.col()
+  )
 end
 
 return M
