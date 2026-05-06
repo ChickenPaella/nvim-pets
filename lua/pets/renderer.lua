@@ -96,20 +96,20 @@ end
 -- Position/size for the small "run window" that follows the pet during
 -- run/bark/return. Returns row, col, width, height plus the in-window
 -- (x, y) where the pet should be drawn.
+--
+-- Window size matches the sprite exactly (no margin). Pet is always at
+-- (0, 0) inside the window. Without margin there's no empty band of
+-- float-window background to leak through onto the editor view.
 local function compute_run_window(pet_row, pet_col)
-  local margin = 1
-  local w = config.width + margin * 2
-  local h = config.height + margin * 2
-  local row = pet_row - margin
-  local col = pet_col - margin
+  local w = config.width
+  local h = config.height
+  local row = pet_row
+  local col = pet_col
   if row < 0 then row = 0 end
   if col < 0 then col = 0 end
   if col + w > vim.o.columns then col = math.max(0, vim.o.columns - w - 1) end
   if row + h > vim.o.lines - 1 then row = math.max(0, vim.o.lines - h - 1) end
-  -- pet's in-window coords: shift by however we clamped
-  local in_x = pet_col - col
-  local in_y = pet_row - row
-  return row, col, w, h, in_x, in_y
+  return row, col, w, h, 0, 0
 end
 
 local function create_float_win()
@@ -128,7 +128,13 @@ local function create_float_win()
     zindex = 50,
   })
 
-  vim.wo[win].winhighlight = "Normal:Normal,NormalFloat:Normal"
+  -- Transparent background so the float never paints over editor text.
+  -- The pet sprite is the only visible content; everywhere the sprite
+  -- isn't, the editor underneath shows through.
+  vim.api.nvim_set_hl(0, "NvimPetsTransparent", { bg = "NONE" })
+  vim.wo[win].winhighlight =
+    "Normal:NvimPetsTransparent,NormalFloat:NvimPetsTransparent,EndOfBuffer:NvimPetsTransparent"
+  vim.wo[win].winblend = 100
   return win, buf
 end
 
@@ -213,7 +219,17 @@ local function master_tick(image_mod)
     set_window(r, c, config.area.cols, config.area.rows)
   elseif is_busy then
     -- Active run/bark/return — keep the small window glued to the pet so
-    -- only ~13x7 cells of UI are ever covered.
+    -- only a sprite-sized patch of UI is ever covered.
+    --
+    -- image.nvim does not automatically reposition a placed image when
+    -- the window's row/col changes; the Kitty placement stays at the
+    -- old absolute spot until we explicitly clear it. So before the
+    -- window moves, clear the current sprite, then move, then let the
+    -- normal render below re-place it at the new window position.
+    if state.cur_img then
+      pcall(function() state.cur_img:clear() end)
+      state.cur_img = nil
+    end
     local r, c, w, h = compute_run_window(pet.row(), pet.col())
     set_window(r, c, w, h)
   end
