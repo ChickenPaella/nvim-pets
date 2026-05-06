@@ -1,30 +1,39 @@
 -- Pure data/logic module: holds pet state and decides transitions.
 -- No nvim API or image.nvim calls here so it stays easy to reason about.
+--
+-- Coordinates (col, row) are absolute screen cells. The renderer is
+-- responsible for placing the float window so that those coordinates
+-- map to the pet's on-screen position.
 
 local M = {}
 
--- Tick rate constants (in master ticks @ 8fps = 125ms each)
-local DECISION_PERIOD = 24 -- ~3 seconds
-local WALK_PERIOD = 2      -- ~250ms per cell while walking
-local ALERT_TICKS = 16     -- ~2 seconds for an alert reaction
+-- Tick rate constants (master timer fires at 8fps = 125ms per tick).
+local DECISION_PERIOD = 24 -- ~3 seconds between wander decisions
+local WALK_PERIOD = 2      -- 1 cell per ~250ms while walking
+local RUN_PERIOD = 1       -- 1 cell per ~125ms while running
+local BARK_TICKS = 12      -- ~1.5s of barking on arrival
+local BARK_FLIP = 2        -- direction flip every 2 ticks (~4Hz wiggle)
 
--- Transition probability tables; rows must each sum to 1.0.
 local TRANSITIONS = {
   idle = { idle = 0.60, walk = 0.35, lie = 0.05 },
   walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
-  lie  = { lie = 0.70, idle = 0.30 }, -- lie -> walk feels jarring; require idle first
+  lie  = { lie = 0.70, idle = 0.30 },
 }
 
 local state = {
-  action = "idle",
-  dir = "right",
-  col = 0,
-  row = 0,
+  action = "idle",       -- idle/walk/lie/running/barking/returning
+  dir = "right",         -- left/right
+  col = 0,               -- absolute screen column
+  row = 0,               -- absolute screen row
   decision_throttle = 0,
   walk_throttle = 0,
-  alert_remaining = 0,
-  -- Saved state to restore after alert completes.
-  pre_alert = nil, -- { action, dir, col, row }
+  run_throttle = 0,
+  bark_remaining = 0,
+  bark_flip_throttle = 0,
+  target_row = 0,        -- destination while running
+  target_col = 0,
+  home_row = 0,          -- where to return after barking
+  home_col = 0,
 }
 
 local function pick(probs)
@@ -47,23 +56,96 @@ function M.init(start_col, start_row)
   state.dir = "right"
   state.col = start_col
   state.row = start_row
+  state.home_col = start_col
+  state.home_row = start_row
   state.decision_throttle = 0
   state.walk_throttle = 0
-  state.alert_remaining = 0
-  state.pre_alert = nil
+  state.run_throttle = 0
+  state.bark_remaining = 0
+  state.bark_flip_throttle = 0
 end
 
 function M.action() return state.action end
-function M.dir() return state.dir end
-function M.col() return state.col end
-function M.row() return state.row end
-function M.is_alert() return state.action == "alert" end
+function M.dir()    return state.dir    end
+function M.col()    return state.col    end
+function M.row()    return state.row    end
+
+function M.is_busy()
+  return state.action == "running"
+      or state.action == "barking"
+      or state.action == "returning"
+end
 
 function M.current_set()
-  -- Alert reuses idle frames; the visual difference is the exclaim overlay
-  -- rendered alongside, plus the absolute screen position.
-  local action = (state.action == "alert") and "idle" or state.action
+  -- running/returning use the walk sprite; barking reuses idle frames and
+  -- the wiggle (rapid dir flips) carries the visual signal of barking.
+  local action = state.action
+  if action == "running" or action == "returning" then
+    action = "walk"
+  elseif action == "barking" then
+    action = "idle"
+  end
   return action .. (state.dir == "left" and "_l" or "_r")
+end
+
+-- External entry: kick off a run-to-target reaction.
+-- (target_row, target_col) are absolute screen cells. The pet remembers
+-- its current position as "home" so it can return after barking.
+function M.start_run_to(target_row, target_col)
+  if M.is_busy() then return end
+  state.home_row = state.row
+  state.home_col = state.col
+  state.target_row = target_row
+  state.target_col = target_col
+  state.action = "running"
+  state.dir = (target_col < state.col) and "left" or "right"
+  state.run_throttle = 0
+end
+
+local function step_toward(target_r, target_c)
+  local dr = (state.row < target_r) and 1 or (state.row > target_r) and -1 or 0
+  local dc = (state.col < target_c) and 1 or (state.col > target_c) and -1 or 0
+  state.row = state.row + dr
+  state.col = state.col + dc
+  if dc < 0 then state.dir = "left"
+  elseif dc > 0 then state.dir = "right" end
+  return state.row == target_r and state.col == target_c
+end
+
+local function tick_running()
+  state.run_throttle = state.run_throttle + 1
+  if state.run_throttle < RUN_PERIOD then return end
+  state.run_throttle = 0
+  if step_toward(state.target_row, state.target_col) then
+    state.action = "barking"
+    state.bark_remaining = BARK_TICKS
+    state.bark_flip_throttle = 0
+  end
+end
+
+local function tick_barking()
+  state.bark_remaining = state.bark_remaining - 1
+  state.bark_flip_throttle = state.bark_flip_throttle + 1
+  if state.bark_flip_throttle >= BARK_FLIP then
+    state.bark_flip_throttle = 0
+    flip_dir()
+  end
+  if state.bark_remaining <= 0 then
+    state.action = "returning"
+    state.dir = (state.home_col < state.col) and "left" or "right"
+    state.run_throttle = 0
+  end
+end
+
+local function tick_returning()
+  state.run_throttle = state.run_throttle + 1
+  if state.run_throttle < RUN_PERIOD then return end
+  state.run_throttle = 0
+  if step_toward(state.home_row, state.home_col) then
+    state.action = "idle"
+    state.decision_throttle = 0
+    state.walk_throttle = 0
+  end
 end
 
 local function decide()
@@ -91,53 +173,10 @@ local function try_move(bounds)
   state.col = new_col
 end
 
--- Enter alert mode: teleport to (row, col), pause wandering for ALERT_TICKS,
--- then auto-restore to whatever we were doing before.
--- target_dir is optional — if given, the pet faces that way during alert.
-function M.enter_alert(target_row, target_col, target_dir)
-  state.pre_alert = {
-    action = state.action,
-    dir = state.dir,
-    col = state.col,
-    row = state.row,
-  }
-  state.action = "alert"
-  state.row = target_row
-  state.col = target_col
-  if target_dir == "left" or target_dir == "right" then
-    state.dir = target_dir
-  end
-  state.alert_remaining = ALERT_TICKS
-  state.decision_throttle = 0
-  state.walk_throttle = 0
-end
-
-local function exit_alert()
-  if not state.pre_alert then
-    state.action = "idle"
-    return
-  end
-  state.action = state.pre_alert.action
-  state.dir = state.pre_alert.dir
-  state.col = state.pre_alert.col
-  state.row = state.pre_alert.row
-  state.pre_alert = nil
-  state.alert_remaining = 0
-  -- Reset throttles so we don't immediately re-decide right after returning.
-  state.decision_throttle = 0
-  state.walk_throttle = 0
-  -- If pre-alert action wasn't a known wander state, fall back to idle.
-  if not TRANSITIONS[state.action] then state.action = "idle" end
-end
-
 function M.tick(bounds)
-  if state.action == "alert" then
-    state.alert_remaining = state.alert_remaining - 1
-    if state.alert_remaining <= 0 then
-      exit_alert()
-    end
-    return
-  end
+  if state.action == "running"  then return tick_running()  end
+  if state.action == "barking"  then return tick_barking()  end
+  if state.action == "returning" then return tick_returning() end
 
   state.decision_throttle = state.decision_throttle + 1
   if state.decision_throttle >= DECISION_PERIOD then

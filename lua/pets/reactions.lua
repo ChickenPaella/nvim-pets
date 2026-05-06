@@ -92,7 +92,7 @@ function M.on_diagnostic_changed(args)
   local row, col = compute_pet_position(target)
   if not row then return end
 
-  renderer.alert_at(row, col, "left")
+  renderer.alert_at(row, col)
   last_reaction_at = now
 end
 
@@ -141,7 +141,7 @@ function M.trigger_manual()
     vim.notify("nvim-pets: target diagnostic line not visible on screen", vim.log.levels.INFO)
     return
   end
-  renderer.alert_at(row, col, "left")
+  renderer.alert_at(row, col)
   last_reaction_at = vim.uv.hrtime()
 end
 

@@ -5,9 +5,12 @@ Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 v1.2: an animated pet wanders inside a wander box anchored to a screen
 corner — idles, walks back and forth (bouncing off the box edges), and
 occasionally lies down to rest. When the LSP / linter / formatter emits a
-new warning or error, the pet teleports to that line and barks an alert
-(`!`) before returning to its corner. Sprite size, box size, and corner
-are configurable both at setup and at runtime via `:Pets*` commands.
+new warning or error, the pet **runs out of its box, sprints across the
+screen to that line, barks at it (rapid wiggle) for ~1.5s, then runs
+back home** and resumes wandering. The float window stays roughly
+sprite-sized as it follows the pet, so the rest of the UI is never
+covered. Sprite size, box size, and corner are configurable both at
+setup and at runtime via `:Pets*` commands.
 
 > Why build this when `pets.nvim` exists? See
 > [docs/why-built-from-scratch.md](docs/why-built-from-scratch.md).
@@ -63,8 +66,9 @@ set -g focus-events on
 ## Diagnostic reactions (v1.2)
 
 When the pet is visible, it listens to `DiagnosticChanged`. On a *new* warning
-or error in any visible buffer, the pet teleports to the line, plays an alert
-(`!` overlay) for ~2 seconds, then returns to its wander box.
+or error in any visible buffer, the pet runs from its wander box across the
+screen to the diagnostic line, barks (rapid left-right wiggle) for ~1.5s,
+then runs back to where it started.
 
 - Uses `vim.diagnostic` — coverage matches whatever you already have wired up
   (LSP servers, none-ls, ruff, eslint, etc.). The plugin doesn't analyze code itself.
