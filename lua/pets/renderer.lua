@@ -125,6 +125,11 @@ local function create_float_win()
   })
 
   vim.wo[win].winhighlight = "Normal:Normal,NormalFloat:Normal"
+  -- Without this, the full-screen float draws an opaque background and hides
+  -- the editor UI underneath. winblend=100 makes the empty buffer cells fully
+  -- transparent so editor text shows through; image.nvim still draws sprites
+  -- on top via the Kitty Graphics Protocol (an overlay layer above cells).
+  vim.wo[win].winblend = 100
   return win, buf
 end
 
