@@ -248,15 +248,6 @@ end
 function M.sprite_width()  return config.width  end
 function M.sprite_height() return config.height end
 
--- Entry point used by reactions.lua. The (row, col) arguments are kept for
--- API compatibility but are intentionally ignored — the alert manifests as
--- agitated motion inside the wander box, not a teleport to the diagnostic.
-function M.alert_at(_row, _col)
-  if not M.is_visible() then return end
-  if pet.is_alerted() then return end
-  pet.start_alert()
-end
-
 local function apply_config()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     M.hide()

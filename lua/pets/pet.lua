@@ -4,10 +4,8 @@
 local M = {}
 
 -- Tick rate constants (master timer fires at 8fps = 125ms per tick).
-local DECISION_PERIOD = 24  -- ~3s between wander decisions
-local WALK_PERIOD = 2       -- 1 cell per ~250ms while walking
-local ALERT_TICKS = 24      -- ~3s of alerted behavior on a new diagnostic
-local ALERT_FLIP_PERIOD = 4 -- direction reversal every ~500ms while alerted
+local DECISION_PERIOD = 24 -- ~3s between wander decisions
+local WALK_PERIOD = 2      -- 1 cell per ~250ms while walking
 
 -- Transition probability tables; rows must each sum to 1.0.
 local TRANSITIONS = {
@@ -17,14 +15,12 @@ local TRANSITIONS = {
 }
 
 local state = {
-  action = "idle",  -- idle / walk / lie / alerted
+  action = "idle",
   dir = "right",
   col = 0,
   row = 0,
   decision_throttle = 0,
   walk_throttle = 0,
-  alert_remaining = 0,
-  alert_flip_throttle = 0,
 }
 
 local function pick(probs)
@@ -49,8 +45,6 @@ function M.init(start_col, start_row)
   state.row = start_row
   state.decision_throttle = 0
   state.walk_throttle = 0
-  state.alert_remaining = 0
-  state.alert_flip_throttle = 0
 end
 
 function M.action() return state.action end
@@ -58,20 +52,8 @@ function M.dir()    return state.dir    end
 function M.col()    return state.col    end
 function M.row()    return state.row    end
 
-function M.is_alerted() return state.action == "alerted" end
-
 function M.current_set()
-  -- "alerted" reuses the walk frames; the rapid dir-flip + per-tick movement
-  -- is what makes it visually distinct from a normal walk.
-  local action = (state.action == "alerted") and "walk" or state.action
-  return action .. (state.dir == "left" and "_l" or "_r")
-end
-
-function M.start_alert()
-  if state.action == "alerted" then return end
-  state.action = "alerted"
-  state.alert_remaining = ALERT_TICKS
-  state.alert_flip_throttle = 0
+  return state.action .. (state.dir == "left" and "_l" or "_r")
 end
 
 local function decide()
@@ -99,29 +81,7 @@ local function try_move(bounds)
   state.col = new_col
 end
 
-local function tick_alerted(bounds)
-  state.alert_remaining = state.alert_remaining - 1
-
-  state.alert_flip_throttle = state.alert_flip_throttle + 1
-  if state.alert_flip_throttle >= ALERT_FLIP_PERIOD then
-    state.alert_flip_throttle = 0
-    flip_dir()
-  end
-
-  -- Move every tick (twice as fast as a normal walk) so the pet looks
-  -- visibly agitated in the corner of your eye without leaving the box.
-  try_move(bounds)
-
-  if state.alert_remaining <= 0 then
-    state.action = "idle"
-    state.decision_throttle = 0
-    state.walk_throttle = 0
-  end
-end
-
 function M.tick(bounds)
-  if state.action == "alerted" then return tick_alerted(bounds) end
-
   state.decision_throttle = state.decision_throttle + 1
   if state.decision_throttle >= DECISION_PERIOD then
     state.decision_throttle = 0

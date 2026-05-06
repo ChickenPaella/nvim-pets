@@ -2,9 +2,7 @@ local M = {}
 
 function M.setup(opts)
   local renderer = require("pets.renderer")
-  local reactions = require("pets.reactions")
   renderer.setup(opts or {})
-  reactions.setup()
 
   vim.api.nvim_create_user_command("Pets", function()
     renderer.toggle()
@@ -13,10 +11,6 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PetsState", function()
     vim.notify(renderer.debug_state(), vim.log.levels.INFO)
   end, { desc = "nvim-pets: print pet state" })
-
-  vim.api.nvim_create_user_command("PetsAlert", function()
-    reactions.trigger_manual()
-  end, { desc = "nvim-pets: manually trigger an alert at the current diagnostic" })
 
   vim.api.nvim_create_user_command("PetsResize", function(args)
     local w = tonumber(args.fargs[1])

@@ -2,16 +2,10 @@
 
 Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 
-v1.2: an animated pet wanders inside a wander box anchored to a screen
+v1.1.5: an animated pet wanders inside a wander box anchored to a screen
 corner — idles, walks back and forth (bouncing off the box edges), and
-occasionally lies down to rest. When the LSP / linter / formatter emits a
-new warning or error, the pet stays in its corner but enters an
-**"alerted" mode for ~3 seconds**: it paces back and forth at twice
-walking speed and reverses direction every ~500ms, looking visibly
-agitated. The motion is meant to catch the developer's eye in the
-periphery without ever covering the code. Sprite size, box size, and
-corner are configurable both at setup and at runtime via `:Pets*`
-commands.
+occasionally lies down to rest. Sprite size, box size, and corner are
+configurable both at setup and at runtime via `:Pets*` commands.
 
 > Why build this when `pets.nvim` exists? See
 > [docs/why-built-from-scratch.md](docs/why-built-from-scratch.md).
@@ -61,24 +55,7 @@ set -g focus-events on
 | `:PetsResize <w> <h>` | resize sprite (cells); auto-grows the box if needed |
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
-| `:PetsAlert` | manually trigger an alert at the current buffer's most severe diagnostic (debug) |
 | `:PetsState` | print current action / direction / position / size / area |
-
-## Diagnostic reactions (v1.2)
-
-When the pet is visible, it listens to `DiagnosticChanged`. On a *new* warning
-or error in any visible buffer, the pet enters "alerted" mode in the corner
-for ~3 seconds — pacing the wander box at twice walking speed, reversing
-direction every ~500ms — then returns to normal idle/walk/lie wander.
-The pet never leaves its box, so code is never covered.
-
-- Uses `vim.diagnostic` — coverage matches whatever you already have wired up
-  (LSP servers, none-ls, ruff, eslint, etc.). The plugin doesn't analyze code itself.
-- Filters: `severity >= WARN`. HINT / INFO are ignored to keep noise low.
-- Same diagnostic signature only triggers once. New warnings on the same line
-  re-trigger only after a 3-second debounce.
-- The pet is placed two cells past end-of-line so it never covers code. If the
-  line is too long, it falls back to one row below the diagnostic.
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
@@ -96,9 +73,7 @@ and re-shows it with the new settings.
 - [x] v1.0: frame-by-frame idle animation
 - [x] v1.1: wandering — state machine (idle ↔ walk ↔ lie), sprite flipping, edge bouncing
 - [x] v1.1.5: bounded wander box, runtime size/area/corner commands, image-cache fix
-- [x] v1.2: diagnostic reactions — teleport + alert overlay on new LSP/linter warnings
-- [ ] v1.3: multi-species (cat/dog/snake) — sprite extraction, runtime species switch
-- [ ] v1.4: free movement across the whole screen with code-aware avoidance
+- [ ] v1.2 (next): cuteness pass — species-specific signature animations, idle peeks, micro-events
 
 ## License
 
