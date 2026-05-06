@@ -7,6 +7,9 @@ corner — idles, walks back and forth (bouncing off the box edges), and
 occasionally lies down to rest. Sprite size, box size, and corner are
 configurable both at setup and at runtime via `:Pets*` commands.
 
+> Why build this when `pets.nvim` exists? See
+> [docs/why-built-from-scratch.md](docs/why-built-from-scratch.md).
+
 ## Requirements
 
 - Neovim >= 0.10
