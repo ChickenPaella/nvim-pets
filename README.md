@@ -5,12 +5,13 @@ Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 v1.2: an animated pet wanders inside a wander box anchored to a screen
 corner — idles, walks back and forth (bouncing off the box edges), and
 occasionally lies down to rest. When the LSP / linter / formatter emits a
-new warning or error, the pet **runs out of its box, sprints across the
-screen to that line, barks at it (rapid wiggle) for ~1.5s, then runs
-back home** and resumes wandering. The float window stays roughly
-sprite-sized as it follows the pet, so the rest of the UI is never
-covered. Sprite size, box size, and corner are configurable both at
-setup and at runtime via `:Pets*` commands.
+new warning or error, the pet stays in its corner but enters an
+**"alerted" mode for ~3 seconds**: it paces back and forth at twice
+walking speed and reverses direction every ~500ms, looking visibly
+agitated. The motion is meant to catch the developer's eye in the
+periphery without ever covering the code. Sprite size, box size, and
+corner are configurable both at setup and at runtime via `:Pets*`
+commands.
 
 > Why build this when `pets.nvim` exists? See
 > [docs/why-built-from-scratch.md](docs/why-built-from-scratch.md).
@@ -66,9 +67,10 @@ set -g focus-events on
 ## Diagnostic reactions (v1.2)
 
 When the pet is visible, it listens to `DiagnosticChanged`. On a *new* warning
-or error in any visible buffer, the pet runs from its wander box across the
-screen to the diagnostic line, barks (rapid left-right wiggle) for ~1.5s,
-then runs back to where it started.
+or error in any visible buffer, the pet enters "alerted" mode in the corner
+for ~3 seconds — pacing the wander box at twice walking speed, reversing
+direction every ~500ms — then returns to normal idle/walk/lie wander.
+The pet never leaves its box, so code is never covered.
 
 - Uses `vim.diagnostic` — coverage matches whatever you already have wired up
   (LSP servers, none-ls, ruff, eslint, etc.). The plugin doesn't analyze code itself.
