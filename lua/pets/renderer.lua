@@ -5,34 +5,36 @@ local pet = require("pets.pet")
 local state = {
   win = nil,
   buf = nil,
-  cur_img = nil,    -- the image currently rendered on screen
+  cur_img = nil,      -- the pet sprite image currently rendered
+  cur_exclaim = nil,  -- the alert "!" overlay currently rendered (or nil)
   timer = nil,
   frame_idx = 1,
-  frames = {},      -- frames[set_name] = { path1, path2, ... }
-  image_cache = {}, -- cache[path .. "@" .. x] = image object (avoids leaking
-                    -- a new image.nvim object every tick — the bug that piled
-                    -- up Kitty Graphics Protocol commands and locked WezTerm)
+  frames = {},        -- frames[set_name] = { path1, path2, ... }
+  image_cache = {},   -- cache[key] = image object
+                      -- key = path .. "@" .. x .. "," .. y
+                      -- y is part of the key now because alert mode places
+                      -- the pet at varied vertical positions, not just the
+                      -- wander box's fixed row.
 }
 
 local config = {
   sprite_root = nil,
   sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r" },
   fps = 8,
-  -- Sprite display size (cells)
   width = 11,
   height = 5,
-  -- Wander box: where the pet is allowed to roam.
   area = {
-    corner = "br",  -- "br" | "bl" | "tr" | "tl"
-    cols = 35,      -- box width
-    rows = 5,       -- box height (typically same as sprite height)
+    corner = "br",
+    cols = 35,
+    rows = 5,
   },
+  exclaim_path = nil,
+  exclaim_width = 2,
+  exclaim_height = 2,
 }
 
 local CORNERS = { br = true, bl = true, tr = true, tl = true }
 
--- Resolve the plugin root from this file's path:
---   <root>/lua/pets/renderer.lua  -> <root>
 local function plugin_root()
   local source = debug.getinfo(1, "S").source:sub(2)
   return vim.fn.fnamemodify(source, ":h:h:h")
@@ -48,6 +50,7 @@ end
 
 function M.setup(opts)
   config.sprite_root = opts.sprite_root or (plugin_root() .. "/sprites/fox")
+  config.exclaim_path = opts.exclaim_path or (plugin_root() .. "/sprites/effects/exclaim.png")
   if opts.fps    then config.fps    = opts.fps    end
   if opts.width  then config.width  = opts.width  end
   if opts.height then config.height = opts.height end
@@ -70,46 +73,58 @@ local function discover_frames()
   end
 end
 
--- Pet movement is bounded by the float window's interior, not the screen.
+-- Wander box anchored to a screen corner, expressed as absolute coordinates
+-- inside the full-screen float window.
 local function compute_bounds()
-  return { col_min = 0, col_max = config.area.cols - config.width }
-end
-
--- Anchor the wander box at one of the four screen corners.
-local function compute_window_pos()
   local cols = config.area.cols
   local rows = config.area.rows
-  local right = vim.o.columns - cols - 2
-  local left  = 2
-  local bot   = vim.o.lines - rows - 3
-  local top   = 1
+  local right_x = vim.o.columns - cols - 2
+  local left_x  = 2
+  local bot_y   = vim.o.lines - rows - 3
+  local top_y   = 1
 
+  local box_x, box_y
   local c = config.area.corner
-  if c == "bl" then return bot, left  end
-  if c == "tr" then return top, right end
-  if c == "tl" then return top, left  end
-  return bot, right -- "br" / default
+  if c == "bl" then
+    box_x, box_y = left_x,  bot_y
+  elseif c == "tr" then
+    box_x, box_y = right_x, top_y
+  elseif c == "tl" then
+    box_x, box_y = left_x,  top_y
+  else
+    box_x, box_y = right_x, bot_y
+  end
+
+  return {
+    col_min = box_x,
+    col_max = box_x + cols - config.width,
+    row_min = box_y,
+    row_max = box_y + rows - config.height,
+  }
 end
 
 local function create_float_win()
-  local row, col = compute_window_pos()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
 
+  -- Full-screen, transparent, non-interactive float. The pet's coordinates
+  -- live inside this window and are interpreted as absolute screen cells.
+  -- This replaces the v1.1 corner-anchored wander-box window so that alerts
+  -- can teleport the pet anywhere on screen without recreating the window.
+  local height = math.max(1, vim.o.lines - 2)
+  local width  = math.max(1, vim.o.columns)
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = config.area.cols,
-    height = config.area.rows,
-    row = row,
-    col = col,
+    width = width,
+    height = height,
+    row = 0,
+    col = 0,
     style = "minimal",
     focusable = false,
     zindex = 50,
   })
 
-  -- Blend the float background into the editor background so only the sprite shows
   vim.wo[win].winhighlight = "Normal:Normal,NormalFloat:Normal"
-
   return win, buf
 end
 
@@ -126,10 +141,18 @@ local function clear_current()
     pcall(function() state.cur_img:clear() end)
     state.cur_img = nil
   end
+  if state.cur_exclaim then
+    pcall(function() state.cur_exclaim:clear() end)
+    state.cur_exclaim = nil
+  end
 end
 
-local function get_or_create_image(image_mod, path, x)
-  local key = path .. "@" .. x
+local function cache_key(path, x, y)
+  return path .. "@" .. x .. "," .. y
+end
+
+local function get_or_create_image(image_mod, path, x, y)
+  local key = cache_key(path, x, y)
   local img = state.image_cache[key]
   if not img then
     img = image_mod.from_file(path, {
@@ -137,9 +160,29 @@ local function get_or_create_image(image_mod, path, x)
       window = state.win,
       buffer = state.buf,
       x = x,
-      y = 0,
+      y = y,
       width = config.width,
       height = config.height,
+    })
+    state.image_cache[key] = img
+  end
+  return img
+end
+
+local function get_or_create_exclaim(image_mod, x, y)
+  if not config.exclaim_path then return nil end
+  if vim.fn.filereadable(config.exclaim_path) == 0 then return nil end
+  local key = cache_key("exclaim", x, y)
+  local img = state.image_cache[key]
+  if not img then
+    img = image_mod.from_file(config.exclaim_path, {
+      id = "nvim-pets-" .. key,
+      window = state.win,
+      buffer = state.buf,
+      x = x,
+      y = y,
+      width = config.exclaim_width,
+      height = config.exclaim_height,
     })
     state.image_cache[key] = img
   end
@@ -166,14 +209,32 @@ local function master_tick(image_mod)
   if not set_frames or #set_frames == 0 then return end
 
   local next_idx = (state.frame_idx % #set_frames) + 1
+  local pet_x, pet_y = pet.col(), pet.row()
 
-  -- Reuse cached image objects so we don't leak a fresh one every tick.
-  -- Render-then-clear keeps frame transitions gap-free.
-  local new_img = get_or_create_image(image_mod, set_frames[next_idx], pet.col())
+  local new_pet = get_or_create_image(image_mod, set_frames[next_idx], pet_x, pet_y)
+  pcall(function() new_pet:render() end)
 
-  pcall(function() new_img:render() end)
-  clear_current()
-  state.cur_img = new_img
+  local new_exclaim
+  if pet.is_alert() then
+    local ex_x = pet_x + math.floor(config.width / 2) - 1
+    local ex_y = math.max(0, pet_y - config.exclaim_height)
+    new_exclaim = get_or_create_exclaim(image_mod, ex_x, ex_y)
+    if new_exclaim then
+      pcall(function() new_exclaim:render() end)
+    end
+  end
+
+  -- Render-then-clear: only clear once new frames are on screen, so the
+  -- transition has no visible gap.
+  if state.cur_img and state.cur_img ~= new_pet then
+    pcall(function() state.cur_img:clear() end)
+  end
+  if state.cur_exclaim and state.cur_exclaim ~= new_exclaim then
+    pcall(function() state.cur_exclaim:clear() end)
+  end
+
+  state.cur_img = new_pet
+  state.cur_exclaim = new_exclaim
   state.frame_idx = next_idx
 end
 
@@ -210,16 +271,18 @@ function M.show()
 
   state.win, state.buf = create_float_win()
 
-  -- Start position: middle of the wander box (window-relative).
-  local start_col = math.max(0, math.floor((config.area.cols - config.width) / 2))
-  pet.init(start_col, 0)
+  -- Start position: middle of the wander box, in absolute screen coords.
+  local bounds = compute_bounds()
+  local start_col = math.floor((bounds.col_min + bounds.col_max) / 2)
+  local start_row = bounds.row_min
+  pet.init(start_col, start_row)
   state.frame_idx = 1
 
   -- Initial render so the pet is visible before the first timer tick.
   local initial_set = pet.current_set()
   local initial_frames = state.frames[initial_set]
   if initial_frames and initial_frames[1] then
-    local img = get_or_create_image(image, initial_frames[1], pet.col())
+    local img = get_or_create_image(image, initial_frames[1], pet.col(), pet.row())
     pcall(function() img:render() end)
     state.cur_img = img
   end
@@ -247,7 +310,20 @@ function M.toggle()
   end
 end
 
--- Apply config changes by tearing down and reshowing if currently visible.
+function M.is_visible()
+  return state.win ~= nil and vim.api.nvim_win_is_valid(state.win)
+end
+
+function M.sprite_width()  return config.width  end
+function M.sprite_height() return config.height end
+
+-- External entry point used by reactions.lua to trigger an alert reaction.
+-- (row, col) are absolute screen cells. Optionally face the pet a direction.
+function M.alert_at(row, col, dir)
+  if not M.is_visible() then return end
+  pet.enter_alert(row, col, dir)
+end
+
 local function apply_config()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     M.hide()
@@ -255,11 +331,9 @@ local function apply_config()
   end
 end
 
--- Runtime setters used by :PetsResize / :PetsArea / :PetsMove commands.
 function M.set_size(w, h)
   if w and w > 0 then config.width  = w end
   if h and h > 0 then config.height = h end
-  -- Auto-grow the wander box if it would no longer contain the sprite.
   if config.area.cols < config.width  then config.area.cols = config.width  end
   if config.area.rows < config.height then config.area.rows = config.height end
   apply_config()
@@ -285,7 +359,6 @@ function M.set_corner(corner)
   end
 end
 
--- Expose pet state for the optional :PetsState debug command.
 function M.debug_state()
   return string.format(
     "action=%s dir=%s pos=(%d,%d) size=%dx%d area=%s(%dx%d)",
