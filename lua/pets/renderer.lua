@@ -5,16 +5,13 @@ local pet = require("pets.pet")
 local state = {
   win = nil,
   buf = nil,
-  cur_img = nil,      -- the pet sprite image currently rendered
-  cur_exclaim = nil,  -- the alert "!" overlay currently rendered (or nil)
+  cur_img = nil,
+  cur_exclaim = nil,
   timer = nil,
   frame_idx = 1,
-  frames = {},        -- frames[set_name] = { path1, path2, ... }
-  image_cache = {},   -- cache[key] = image object
-                      -- key = path .. "@" .. x .. "," .. y
-                      -- y is part of the key now because alert mode places
-                      -- the pet at varied vertical positions, not just the
-                      -- wander box's fixed row.
+  frames = {},
+  image_cache = {},   -- cache[key] = image object (key = path .. "@" .. x .. "," .. y)
+  in_alert_window = false, -- true while the float is positioned at an alert location
 }
 
 local config = {
@@ -73,63 +70,49 @@ local function discover_frames()
   end
 end
 
--- Wander box anchored to a screen corner, expressed as absolute coordinates
--- inside the full-screen float window.
+-- Wander mode bounds: pet coords are window-relative inside the wander box.
 local function compute_bounds()
-  local cols = config.area.cols
-  local rows = config.area.rows
-  local right_x = vim.o.columns - cols - 2
-  local left_x  = 2
-  local bot_y   = vim.o.lines - rows - 3
-  local top_y   = 1
-
-  local box_x, box_y
-  local c = config.area.corner
-  if c == "bl" then
-    box_x, box_y = left_x,  bot_y
-  elseif c == "tr" then
-    box_x, box_y = right_x, top_y
-  elseif c == "tl" then
-    box_x, box_y = left_x,  top_y
-  else
-    box_x, box_y = right_x, bot_y
-  end
-
   return {
-    col_min = box_x,
-    col_max = box_x + cols - config.width,
-    row_min = box_y,
-    row_max = box_y + rows - config.height,
+    col_min = 0,
+    col_max = config.area.cols - config.width,
+    row_min = 0,
+    row_max = config.area.rows - config.height,
   }
 end
 
+-- Anchor the wander box at one of the four screen corners.
+local function compute_corner_pos()
+  local cols = config.area.cols
+  local rows = config.area.rows
+  local right = vim.o.columns - cols - 2
+  local left  = 2
+  local bot   = vim.o.lines - rows - 3
+  local top   = 1
+
+  local c = config.area.corner
+  if c == "bl" then return bot, left  end
+  if c == "tr" then return top, right end
+  if c == "tl" then return top, left  end
+  return bot, right
+end
+
 local function create_float_win()
+  local row, col = compute_corner_pos()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
 
-  -- Full-screen, transparent, non-interactive float. The pet's coordinates
-  -- live inside this window and are interpreted as absolute screen cells.
-  -- This replaces the v1.1 corner-anchored wander-box window so that alerts
-  -- can teleport the pet anywhere on screen without recreating the window.
-  local height = math.max(1, vim.o.lines - 2)
-  local width  = math.max(1, vim.o.columns)
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = width,
-    height = height,
-    row = 0,
-    col = 0,
+    width = config.area.cols,
+    height = config.area.rows,
+    row = row,
+    col = col,
     style = "minimal",
     focusable = false,
     zindex = 50,
   })
 
   vim.wo[win].winhighlight = "Normal:Normal,NormalFloat:Normal"
-  -- Without this, the full-screen float draws an opaque background and hides
-  -- the editor UI underneath. winblend=100 makes the empty buffer cells fully
-  -- transparent so editor text shows through; image.nvim still draws sprites
-  -- on top via the Kitty Graphics Protocol (an overlay layer above cells).
-  vim.wo[win].winblend = 100
   return win, buf
 end
 
@@ -199,6 +182,59 @@ local function clear_image_cache()
     pcall(function() img:clear() end)
   end
   state.image_cache = {}
+  state.cur_img = nil
+  state.cur_exclaim = nil
+end
+
+-- Move/resize the float to a small alert area at (abs_row, abs_col).
+-- Pet coordinates are reset to in-window offsets that leave room above
+-- for the exclaim overlay. After the alert ends the window is restored
+-- to the wander-box corner via restore_wander_window().
+local function enter_alert_window(abs_row, abs_col, dir)
+  local sw = config.width
+  local sh = config.height
+  local exh = config.exclaim_height
+  local win_w = sw + 2
+  local win_h = sh + exh + 1
+
+  local win_row = math.max(0, abs_row - exh)
+  local win_col = math.max(0, abs_col)
+  if win_col + win_w > vim.o.columns then
+    win_col = math.max(0, vim.o.columns - win_w - 1)
+  end
+  if win_row + win_h > vim.o.lines - 1 then
+    win_row = math.max(0, vim.o.lines - win_h - 1)
+  end
+
+  -- Drop image cache before moving — entries cached at wander-box-relative
+  -- coords aren't meaningful after the window jumps to a new screen position.
+  clear_image_cache()
+
+  vim.api.nvim_win_set_config(state.win, {
+    relative = "editor",
+    row = win_row,
+    col = win_col,
+    width = win_w,
+    height = win_h,
+  })
+  state.in_alert_window = true
+
+  pet.enter_alert(exh, 1, dir)
+end
+
+local function restore_wander_window()
+  if not (state.win and vim.api.nvim_win_is_valid(state.win)) then return end
+  state.in_alert_window = false
+  local row, col = compute_corner_pos()
+  -- Cache is invalid for the new window position; clear before moving.
+  clear_image_cache()
+  vim.api.nvim_win_set_config(state.win, {
+    relative = "editor",
+    row = row,
+    col = col,
+    width = config.area.cols,
+    height = config.area.rows,
+  })
 end
 
 local function master_tick(image_mod)
@@ -207,7 +243,14 @@ local function master_tick(image_mod)
     return
   end
 
+  local was_alert = pet.is_alert()
   pet.tick(compute_bounds())
+  local is_alert_now = pet.is_alert()
+
+  -- alert just ended → snap window back to wander box
+  if was_alert and not is_alert_now and state.in_alert_window then
+    restore_wander_window()
+  end
 
   local cur_set = pet.current_set()
   local set_frames = state.frames[cur_set]
@@ -229,8 +272,6 @@ local function master_tick(image_mod)
     end
   end
 
-  -- Render-then-clear: only clear once new frames are on screen, so the
-  -- transition has no visible gap.
   if state.cur_img and state.cur_img ~= new_pet then
     pcall(function() state.cur_img:clear() end)
   end
@@ -275,15 +316,13 @@ function M.show()
   end
 
   state.win, state.buf = create_float_win()
+  state.in_alert_window = false
 
-  -- Start position: middle of the wander box, in absolute screen coords.
-  local bounds = compute_bounds()
-  local start_col = math.floor((bounds.col_min + bounds.col_max) / 2)
-  local start_row = bounds.row_min
-  pet.init(start_col, start_row)
+  -- Pet starts at the middle of the wander box (window-relative).
+  local start_col = math.max(0, math.floor((config.area.cols - config.width) / 2))
+  pet.init(start_col, 0)
   state.frame_idx = 1
 
-  -- Initial render so the pet is visible before the first timer tick.
   local initial_set = pet.current_set()
   local initial_frames = state.frames[initial_set]
   if initial_frames and initial_frames[1] then
@@ -305,6 +344,7 @@ function M.hide()
   state.win = nil
   state.buf = nil
   state.frame_idx = 1
+  state.in_alert_window = false
 end
 
 function M.toggle()
@@ -322,11 +362,13 @@ end
 function M.sprite_width()  return config.width  end
 function M.sprite_height() return config.height end
 
--- External entry point used by reactions.lua to trigger an alert reaction.
--- (row, col) are absolute screen cells. Optionally face the pet a direction.
-function M.alert_at(row, col, dir)
+-- Entry point used by reactions.lua. (abs_row, abs_col) are screen cells.
+function M.alert_at(abs_row, abs_col, dir)
   if not M.is_visible() then return end
-  pet.enter_alert(row, col, dir)
+  -- Refuse to overlap an in-flight alert; reactions.lua already debounces
+  -- but a manual :PetsAlert during alert would otherwise stack.
+  if pet.is_alert() then return end
+  enter_alert_window(abs_row, abs_col, dir)
 end
 
 local function apply_config()
@@ -366,10 +408,11 @@ end
 
 function M.debug_state()
   return string.format(
-    "action=%s dir=%s pos=(%d,%d) size=%dx%d area=%s(%dx%d)",
+    "action=%s dir=%s pos=(%d,%d) size=%dx%d area=%s(%dx%d) alert_win=%s",
     pet.action(), pet.dir(), pet.row(), pet.col(),
     config.width, config.height,
-    config.area.corner, config.area.cols, config.area.rows
+    config.area.corner, config.area.cols, config.area.rows,
+    tostring(state.in_alert_window)
   )
 end
 
