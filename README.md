@@ -2,9 +2,12 @@
 
 Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 
-v1.1.5: an animated pet wanders inside a wander box anchored to a screen
+v1.2: an animated pet wanders inside a wander box anchored to a screen
 corner — idles, walks back and forth (bouncing off the box edges), and
-occasionally lies down to rest. Sprite size, box size, and corner are
+occasionally lies down to rest. The pet also reacts to your work
+without ever leaving its corner: it pauses to look at you when you
+save, drifts off to sleep after long inactivity, and surfaces a small
+random wiggle every few minutes. Sprite size, box size, and corner are
 configurable both at setup and at runtime via `:Pets*` commands.
 
 > Why build this when `pets.nvim` exists? See
@@ -56,9 +59,31 @@ set -g focus-events on
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
 | `:PetsState` | print current action / direction / position / size / area |
+| `:PetsPeek` / `:PetsWiggle` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
+
+## Lifestyle events (v1.2)
+
+The pet stays in its corner but reacts to your editing rhythm:
+
+- **Peek on save** — `BufWritePost` fires the pet into a brief `peek` state:
+  it pauses for ~1 second and faces toward the screen center (away from
+  the corner) so it looks like it's looking at you.
+- **Sleep on long idle** — after ~10 minutes with no cursor movement / text
+  change / save, the pet curls up into a `lie` pose and stays there.
+  Any user activity wakes it back to idle automatically.
+- **Random wiggle** — every ~5 minutes (±2 min jitter), if the pet isn't
+  busy, it does a short head-shake (~1.5s of rapid left/right flips).
+  Background sign of life.
+- **Focus loss** — handled automatically by image.nvim's
+  `editor_only_render_when_focused`; when you switch windows or apps,
+  the pet disappears with the rest of the rendered images.
+
+All of this reuses the existing idle / lie sprites — no new assets.
+
+Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 
 ## Known limitations
 
@@ -73,7 +98,9 @@ and re-shows it with the new settings.
 - [x] v1.0: frame-by-frame idle animation
 - [x] v1.1: wandering — state machine (idle ↔ walk ↔ lie), sprite flipping, edge bouncing
 - [x] v1.1.5: bounded wander box, runtime size/area/corner commands, image-cache fix
-- [ ] v1.2 (next): cuteness pass — species-specific signature animations, idle peeks, micro-events
+- [x] v1.2: lifestyle events — save peek, idle sleep, random wiggle
+- [ ] v1.3: multi-species (cat / dog / snake) with species-specific signature animations
+- [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License
 

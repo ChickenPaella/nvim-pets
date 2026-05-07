@@ -247,6 +247,7 @@ end
 
 function M.sprite_width()  return config.width  end
 function M.sprite_height() return config.height end
+function M.corner()        return config.area.corner end
 
 local function apply_config()
   if state.win and vim.api.nvim_win_is_valid(state.win) then

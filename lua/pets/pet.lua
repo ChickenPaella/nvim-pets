@@ -4,8 +4,9 @@
 local M = {}
 
 -- Tick rate constants (master timer fires at 8fps = 125ms per tick).
-local DECISION_PERIOD = 24 -- ~3s between wander decisions
-local WALK_PERIOD = 2      -- 1 cell per ~250ms while walking
+local DECISION_PERIOD = 24       -- ~3s between wander decisions
+local WALK_PERIOD = 2            -- 1 cell per ~250ms while walking
+local WIGGLE_FLIP_PERIOD = 2     -- dir flip every 250ms during wiggle
 
 -- Transition probability tables; rows must each sum to 1.0.
 local TRANSITIONS = {
@@ -15,12 +16,14 @@ local TRANSITIONS = {
 }
 
 local state = {
-  action = "idle",
+  action = "idle", -- idle / walk / lie / peek / wiggle / sleep
   dir = "right",
   col = 0,
   row = 0,
   decision_throttle = 0,
   walk_throttle = 0,
+  transient_remaining = 0, -- countdown for peek/wiggle; sleep has no timer
+  wiggle_flip_throttle = 0,
 }
 
 local function pick(probs)
@@ -45,6 +48,8 @@ function M.init(start_col, start_row)
   state.row = start_row
   state.decision_throttle = 0
   state.walk_throttle = 0
+  state.transient_remaining = 0
+  state.wiggle_flip_throttle = 0
 end
 
 function M.action() return state.action end
@@ -52,8 +57,56 @@ function M.dir()    return state.dir    end
 function M.col()    return state.col    end
 function M.row()    return state.row    end
 
+function M.is_sleeping() return state.action == "sleep" end
+function M.is_busy()
+  return state.action == "peek"
+      or state.action == "wiggle"
+      or state.action == "sleep"
+end
+
 function M.current_set()
-  return state.action .. (state.dir == "left" and "_l" or "_r")
+  -- peek/wiggle reuse the idle frames; sleep reuses lie.
+  -- Visual difference comes from dir locking (peek), rapid dir flips
+  -- (wiggle), and frozen state (sleep).
+  local action = state.action
+  if action == "peek" or action == "wiggle" then
+    action = "idle"
+  elseif action == "sleep" then
+    action = "lie"
+  end
+  return action .. (state.dir == "left" and "_l" or "_r")
+end
+
+-- External entries: the events module triggers these.
+
+-- Brief pause facing a chosen direction. Used for save reactions etc.
+function M.peek(dir, ticks)
+  if M.is_busy() then return end
+  state.action = "peek"
+  if dir == "left" or dir == "right" then state.dir = dir end
+  state.transient_remaining = ticks or 8
+end
+
+-- Short head-shake (rapid left/right flips). Used for random micro-events.
+function M.wiggle(ticks)
+  if M.is_busy() then return end
+  state.action = "wiggle"
+  state.transient_remaining = ticks or 12
+  state.wiggle_flip_throttle = 0
+end
+
+-- Long-form lying down. Stays until wake() is called.
+function M.sleep()
+  if M.is_busy() then return end
+  state.action = "sleep"
+end
+
+function M.wake()
+  if state.action == "sleep" then
+    state.action = "idle"
+    state.decision_throttle = 0
+    state.walk_throttle = 0
+  end
 end
 
 local function decide()
@@ -81,7 +134,30 @@ local function try_move(bounds)
   state.col = new_col
 end
 
+local function tick_transient()
+  state.transient_remaining = state.transient_remaining - 1
+  if state.action == "wiggle" then
+    state.wiggle_flip_throttle = state.wiggle_flip_throttle + 1
+    if state.wiggle_flip_throttle >= WIGGLE_FLIP_PERIOD then
+      state.wiggle_flip_throttle = 0
+      flip_dir()
+    end
+  end
+  if state.transient_remaining <= 0 then
+    state.action = "idle"
+    state.decision_throttle = 0
+    state.walk_throttle = 0
+  end
+end
+
 function M.tick(bounds)
+  if state.action == "peek" or state.action == "wiggle" then
+    return tick_transient()
+  end
+  if state.action == "sleep" then
+    return -- frozen until wake()
+  end
+
   state.decision_throttle = state.decision_throttle + 1
   if state.decision_throttle >= DECISION_PERIOD then
     state.decision_throttle = 0
