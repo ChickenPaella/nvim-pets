@@ -77,9 +77,12 @@ The pet stays in its corner but reacts to your editing rhythm:
 - **Random wiggle** — every ~5 minutes (±2 min jitter), if the pet isn't
   busy, it does a short head-shake (~1.5s of rapid left/right flips).
   Background sign of life.
-- **Focus loss** — handled automatically by image.nvim's
-  `editor_only_render_when_focused`; when you switch windows or apps,
-  the pet disappears with the rest of the rendered images.
+- **Focus loss** — `FocusLost` (e.g. tmux pane move, app switch) tears
+  the float down completely; `FocusGained` brings it back after a short
+  defer. This is more aggressive than image.nvim's
+  `editor_only_render_when_focused` because it also drops the cached
+  Kitty placements, which prevents stale-image build-up that can freeze
+  WezTerm + tmux on long sessions.
 
 All of this reuses the existing idle / lie sprites — no new assets.
 

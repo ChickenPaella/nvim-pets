@@ -1,11 +1,9 @@
 -- Lifestyle events that make the pet feel alive without leaving its
 -- wander box: react to the user saving a file, drift to sleep when the
--- user goes idle for a long time, and surface a small random "wiggle"
--- every few minutes.
---
--- Nothing here generates new sprites — every behavior reuses the
--- existing idle / lie / walk frames and gets its character from
--- direction locking, dir-flip rhythm, or frozen state.
+-- user goes idle for a long time, surface a small random "wiggle"
+-- every few minutes, and auto-hide when nvim loses focus so a stale
+-- Kitty placement doesn't pile up while the terminal redraws (tmux
+-- pane moves, app switches).
 
 local M = {}
 
@@ -19,20 +17,31 @@ local IDLE_THRESHOLD_S = 10 * 60    -- 10 minutes → drift to sleep
 local IDLE_CHECK_INTERVAL_MS = 30 * 1000
 local WIGGLE_BASE_S = 5 * 60        -- average gap between random wiggles
 local WIGGLE_JITTER_S = 2 * 60      -- ± jitter so timing isn't predictable
+local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
+local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
 local last_activity_at = os.time()
+local last_recorded_at = 0
+local was_visible_before_blur = false
+
 local idle_timer = nil
 local wiggle_timer = nil
+local focus_reshow_timer = nil
 
--- Pet faces away from the corner, so it appears to look at the user.
 local function peek_dir()
   local c = renderer.corner and renderer.corner() or "br"
   if c == "br" or c == "tr" then return "left" end
   return "right"
 end
 
+-- Throttled: record_activity is wired to high-frequency autocmds
+-- (TextChanged, CursorMoved, ...). Coalescing to once per second keeps the
+-- main loop quiet during heavy editing.
 local function record_activity()
-  last_activity_at = os.time()
+  local now = os.time()
+  if now - last_recorded_at < ACTIVITY_THROTTLE_S then return end
+  last_recorded_at = now
+  last_activity_at = now
   if pet.is_sleeping() then
     pet.wake()
   end
@@ -40,7 +49,8 @@ end
 
 local function on_save()
   if not renderer.is_visible() then return end
-  record_activity()
+  last_recorded_at = os.time()
+  last_activity_at = last_recorded_at
   pet.peek(peek_dir(), PEEK_TICKS)
 end
 
@@ -86,12 +96,39 @@ end
 local function stop_all_timers()
   stop_timer(idle_timer)
   stop_timer(wiggle_timer)
+  stop_timer(focus_reshow_timer)
   idle_timer = nil
   wiggle_timer = nil
+  focus_reshow_timer = nil
+end
+
+-- On focus loss (tmux pane move, app switch, etc.) we tear the float
+-- down completely so image.nvim's Kitty placement doesn't accumulate
+-- stale state during terminal redraws — that's what was producing the
+-- "ghost copy + freeze" symptom. We remember whether the pet was on
+-- and bring it back automatically when focus returns.
+local function on_focus_lost()
+  if not renderer.is_visible() then
+    was_visible_before_blur = false
+    return
+  end
+  was_visible_before_blur = true
+  pcall(renderer.hide)
+end
+
+local function on_focus_gained()
+  if not was_visible_before_blur then return end
+  was_visible_before_blur = false
+  stop_timer(focus_reshow_timer)
+  focus_reshow_timer = vim.uv.new_timer()
+  focus_reshow_timer:start(FOCUS_RESHOW_DELAY_MS, 0, vim.schedule_wrap(function()
+    pcall(renderer.show)
+  end))
 end
 
 function M.setup()
   last_activity_at = os.time()
+  last_recorded_at = last_activity_at
 
   local group = vim.api.nvim_create_augroup("nvim-pets-events", { clear = true })
 
@@ -108,6 +145,15 @@ function M.setup()
     callback = record_activity,
   })
 
+  vim.api.nvim_create_autocmd("FocusLost", {
+    group = group,
+    callback = function() pcall(on_focus_lost) end,
+  })
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function() pcall(on_focus_gained) end,
+  })
+
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = group,
     callback = stop_all_timers,
@@ -118,9 +164,9 @@ function M.setup()
 end
 
 -- Test/debug entry points used by :Pets* commands.
-function M.trigger_peek() pet.peek(peek_dir(), PEEK_TICKS) end
+function M.trigger_peek()   pet.peek(peek_dir(), PEEK_TICKS) end
 function M.trigger_wiggle() pet.wiggle(WIGGLE_TICKS) end
-function M.trigger_sleep() pet.sleep() end
-function M.trigger_wake() pet.wake() end
+function M.trigger_sleep()  pet.sleep() end
+function M.trigger_wake()   pet.wake() end
 
 return M
