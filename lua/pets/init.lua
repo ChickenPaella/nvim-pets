@@ -44,6 +44,14 @@ function M.setup(opts)
     complete = function() return { "br", "bl", "tr", "tl" } end,
     desc = "nvim-pets: move wander box to a corner (br/bl/tr/tl)",
   })
+
+  vim.api.nvim_create_user_command("PetsType", function(args)
+    renderer.set_pet(args.fargs[1])
+  end, {
+    nargs = 1,
+    complete = function() return { "fox", "panda" } end,
+    desc = "nvim-pets: switch pet species (fox/panda)",
+  })
 end
 
 return M

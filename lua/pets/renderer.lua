@@ -14,6 +14,7 @@ local state = {
 }
 
 local config = {
+  pet = "fox",
   sprite_root = nil,
   sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r" },
   fps = 8,
@@ -27,6 +28,14 @@ local config = {
 }
 
 local CORNERS = { br = true, bl = true, tr = true, tl = true }
+
+-- Per-species defaults. Sprite sheets have different native aspect ratios
+-- (fox ≈ 1.23:1, panda 1:1), so each species needs its own cell size to
+-- avoid horizontal stretching when rendered at a fixed cell grid.
+local SPECIES = {
+  fox   = { width = 11, height = 5 },
+  panda = { width = 10, height = 5 },
+}
 
 local function plugin_root()
   local source = debug.getinfo(1, "S").source:sub(2)
@@ -42,10 +51,13 @@ local function normalize_corner(corner)
 end
 
 function M.setup(opts)
-  config.sprite_root = opts.sprite_root or (plugin_root() .. "/sprites/fox")
+  local pet_name = opts.pet or "fox"
+  local sd = SPECIES[pet_name] or SPECIES.fox
+  config.pet = pet_name
+  config.sprite_root = opts.sprite_root or (plugin_root() .. "/sprites/" .. pet_name)
+  config.width  = opts.width  or sd.width
+  config.height = opts.height or sd.height
   if opts.fps    then config.fps    = opts.fps    end
-  if opts.width  then config.width  = opts.width  end
-  if opts.height then config.height = opts.height end
   if opts.area then
     if opts.area.corner then
       local c = normalize_corner(opts.area.corner)
@@ -284,10 +296,28 @@ function M.set_corner(corner)
   end
 end
 
+function M.set_pet(name)
+  local sd = SPECIES[name]
+  if not sd then
+    vim.notify("nvim-pets: unknown species '" .. tostring(name) .. "' (have: fox, panda)", vim.log.levels.WARN)
+    return
+  end
+  config.pet = name
+  config.sprite_root = plugin_root() .. "/sprites/" .. name
+  config.width  = sd.width
+  config.height = sd.height
+  -- Ensure the wander box still contains the new sprite.
+  if config.area.cols < config.width  then config.area.cols = config.width  end
+  if config.area.rows < config.height then config.area.rows = config.height end
+  apply_config()
+end
+
+function M.species() return config.pet end
+
 function M.debug_state()
   return string.format(
-    "action=%s dir=%s pos=(%d,%d) size=%dx%d area=%s(%dx%d)",
-    pet.action(), pet.dir(), pet.row(), pet.col(),
+    "pet=%s action=%s dir=%s pos=(%d,%d) size=%dx%d area=%s(%dx%d)",
+    config.pet, pet.action(), pet.dir(), pet.row(), pet.col(),
     config.width, config.height,
     config.area.corner, config.area.cols, config.area.rows
   )

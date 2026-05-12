@@ -37,8 +37,9 @@ set -g focus-events on
   config = function()
     require("pets").setup({
       -- All optional; values shown are the defaults.
-      width  = 11,             -- sprite width in cells
-      height = 5,              -- sprite height in cells
+      pet    = "fox",          -- "fox" | "panda"
+      width  = 11,             -- sprite width in cells (overrides species default)
+      height = 5,              -- sprite height in cells (overrides species default)
       fps    = 8,
       area = {
         corner = "br",         -- "br" | "bl" | "tr" | "tl"
@@ -58,7 +59,8 @@ set -g focus-events on
 | `:PetsResize <w> <h>` | resize sprite (cells); auto-grows the box if needed |
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
-| `:PetsState` | print current action / direction / position / size / area |
+| `:PetsType <name>` | switch species (`fox` / `panda`) |
+| `:PetsState` | print current pet / action / direction / position / size / area |
 | `:PetsPeek` / `:PetsWiggle` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
@@ -102,7 +104,8 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.1: wandering — state machine (idle ↔ walk ↔ lie), sprite flipping, edge bouncing
 - [x] v1.1.5: bounded wander box, runtime size/area/corner commands, image-cache fix
 - [x] v1.2: lifestyle events — save peek, idle sleep, random wiggle
-- [ ] v1.3: multi-species (cat / dog / snake) with species-specific signature animations
+- [x] v1.3.1: multi-species — `panda` added alongside `fox`, runtime switch via `:PetsType`
+- [ ] v1.3.2: add more species (dog, totoro) and per-species signature animations
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License
