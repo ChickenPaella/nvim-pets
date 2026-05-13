@@ -49,8 +49,8 @@ function M.setup(opts)
     renderer.set_pet(args.fargs[1])
   end, {
     nargs = 1,
-    complete = function() return { "fox", "panda", "dog", "turtle" } end,
-    desc = "nvim-pets: switch pet species (fox/panda/dog/turtle)",
+    complete = function() return renderer.species_list() end,
+    desc = "nvim-pets: switch pet species",
   })
 end
 

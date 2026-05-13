@@ -34,14 +34,18 @@ local function peek_dir()
   return "right"
 end
 
+local function mark_active()
+  local now = os.time()
+  last_recorded_at = now
+  last_activity_at = now
+end
+
 -- Throttled: record_activity is wired to high-frequency autocmds
 -- (TextChanged, CursorMoved, ...). Coalescing to once per second keeps the
 -- main loop quiet during heavy editing.
 local function record_activity()
-  local now = os.time()
-  if now - last_recorded_at < ACTIVITY_THROTTLE_S then return end
-  last_recorded_at = now
-  last_activity_at = now
+  if os.time() - last_recorded_at < ACTIVITY_THROTTLE_S then return end
+  mark_active()
   if pet.is_sleeping() then
     pet.wake()
   end
@@ -49,8 +53,7 @@ end
 
 local function on_save()
   if not renderer.is_visible() then return end
-  last_recorded_at = os.time()
-  last_activity_at = last_recorded_at
+  mark_active()
   pet.peek(peek_dir(), PEEK_TICKS)
 end
 

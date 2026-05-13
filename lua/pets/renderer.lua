@@ -29,6 +29,11 @@ local config = {
 
 local CORNERS = { br = true, bl = true, tr = true, tl = true }
 
+-- Margins between the wander box and the editor's edges. The bottom margin
+-- is larger because the statusline and cmdline occupy the lowest rows.
+local PAD_LEFT, PAD_RIGHT = 2, 2
+local PAD_TOP,  PAD_BOTTOM = 1, 3
+
 -- Per-species defaults. Sprite sheets have different native aspect ratios,
 -- so each species needs its own cell size to avoid bad stretching when
 -- rendered on a fixed cell grid. walk_period = master ticks per cell of
@@ -90,16 +95,16 @@ end
 local function compute_window_pos()
   local cols = config.area.cols
   local rows = config.area.rows
-  local right = vim.o.columns - cols - 2
-  local left  = 2
-  local bot   = vim.o.lines - rows - 3
-  local top   = 1
+  local right_x = vim.o.columns - cols - PAD_RIGHT
+  local left_x  = PAD_LEFT
+  local bot_y   = vim.o.lines - rows - PAD_BOTTOM
+  local top_y   = PAD_TOP
 
   local c = config.area.corner
-  if c == "bl" then return bot, left  end
-  if c == "tr" then return top, right end
-  if c == "tl" then return top, left  end
-  return bot, right
+  if c == "bl" then return bot_y, left_x  end
+  if c == "tr" then return top_y, right_x end
+  if c == "tl" then return top_y, left_x  end
+  return bot_y, right_x
 end
 
 local function create_float_win()
@@ -302,10 +307,21 @@ function M.set_corner(corner)
   end
 end
 
+function M.species_list()
+  local names = {}
+  for name in pairs(SPECIES) do names[#names + 1] = name end
+  table.sort(names)
+  return names
+end
+
 function M.set_pet(name)
   local sd = SPECIES[name]
   if not sd then
-    vim.notify("nvim-pets: unknown species '" .. tostring(name) .. "' (have: fox, panda, dog, turtle)", vim.log.levels.WARN)
+    vim.notify(
+      "nvim-pets: unknown species '" .. tostring(name)
+        .. "' (have: " .. table.concat(M.species_list(), ", ") .. ")",
+      vim.log.levels.WARN
+    )
     return
   end
   config.pet = name
