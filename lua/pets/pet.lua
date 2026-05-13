@@ -5,8 +5,11 @@ local M = {}
 
 -- Tick rate constants (master timer fires at 8fps = 125ms per tick).
 local DECISION_PERIOD = 24       -- ~3s between wander decisions
-local WALK_PERIOD = 2            -- 1 cell per ~250ms while walking
 local WIGGLE_FLIP_PERIOD = 2     -- dir flip every 250ms during wiggle
+
+-- Cells per master tick = 1 / walk_period. Renderer overrides this per
+-- species (turtle is much slower than fox, etc.).
+local walk_period = 2
 
 -- Transition probability tables; rows must each sum to 1.0.
 local TRANSITIONS = {
@@ -56,6 +59,14 @@ function M.action() return state.action end
 function M.dir()    return state.dir    end
 function M.col()    return state.col    end
 function M.row()    return state.row    end
+
+-- Renderer calls this on show() / species switch so each pet can carry
+-- its own pace (turtle slower than fox, etc.).
+function M.set_walk_period(n)
+  if type(n) == "number" and n >= 1 then
+    walk_period = math.floor(n)
+  end
+end
 
 function M.is_sleeping() return state.action == "sleep" end
 function M.is_busy()
@@ -166,7 +177,7 @@ function M.tick(bounds)
 
   if state.action == "walk" then
     state.walk_throttle = state.walk_throttle + 1
-    if state.walk_throttle >= WALK_PERIOD then
+    if state.walk_throttle >= walk_period then
       state.walk_throttle = 0
       try_move(bounds)
     end

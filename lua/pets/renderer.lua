@@ -31,12 +31,14 @@ local CORNERS = { br = true, bl = true, tr = true, tl = true }
 
 -- Per-species defaults. Sprite sheets have different native aspect ratios,
 -- so each species needs its own cell size to avoid bad stretching when
--- rendered on a fixed cell grid.
+-- rendered on a fixed cell grid. walk_period = master ticks per cell of
+-- walking motion (lower = faster); the default tick rate is 8fps, so a
+-- walk_period of 2 means 4 cells/sec.
 local SPECIES = {
-  fox    = { width = 11, height = 5 }, -- 92x75 ≈ 1.23:1
-  panda  = { width = 10, height = 5 }, -- 96x96 = 1.00:1
-  dog    = { width = 12, height = 5 }, -- 174x115 ≈ 1.51:1 (akita)
-  turtle = { width = 11, height = 5 }, -- 115x90 ≈ 1.28:1 (green)
+  fox    = { width = 11, height = 5, walk_period = 2 }, -- 92x75 ≈ 1.23:1
+  panda  = { width = 10, height = 5, walk_period = 2 }, -- 96x96 = 1.00:1
+  dog    = { width = 12, height = 5, walk_period = 2 }, -- 174x115 ≈ 1.51:1 (akita)
+  turtle = { width = 11, height = 5, walk_period = 6 }, -- 115x90 ≈ 1.28:1 (green) — slow on purpose
 }
 
 local function plugin_root()
@@ -59,6 +61,7 @@ function M.setup(opts)
   config.sprite_root = opts.sprite_root or (plugin_root() .. "/sprites/" .. pet_name)
   config.width  = opts.width  or sd.width
   config.height = opts.height or sd.height
+  config.walk_period = opts.walk_period or sd.walk_period
   if opts.fps    then config.fps    = opts.fps    end
   if opts.area then
     if opts.area.corner then
@@ -222,6 +225,7 @@ function M.show()
 
   local start_col = math.max(0, math.floor((config.area.cols - config.width) / 2))
   pet.init(start_col, 0)
+  pet.set_walk_period(config.walk_period or 2)
   state.frame_idx = 1
 
   local initial_set = pet.current_set()
@@ -308,6 +312,7 @@ function M.set_pet(name)
   config.sprite_root = plugin_root() .. "/sprites/" .. name
   config.width  = sd.width
   config.height = sd.height
+  config.walk_period = sd.walk_period
   -- Ensure the wander box still contains the new sprite.
   if config.area.cols < config.width  then config.area.cols = config.width  end
   if config.area.rows < config.height then config.area.rows = config.height end
