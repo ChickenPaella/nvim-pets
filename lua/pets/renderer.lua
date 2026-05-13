@@ -29,12 +29,14 @@ local config = {
 
 local CORNERS = { br = true, bl = true, tr = true, tl = true }
 
--- Per-species defaults. Sprite sheets have different native aspect ratios
--- (fox ≈ 1.23:1, panda 1:1), so each species needs its own cell size to
--- avoid horizontal stretching when rendered at a fixed cell grid.
+-- Per-species defaults. Sprite sheets have different native aspect ratios,
+-- so each species needs its own cell size to avoid bad stretching when
+-- rendered on a fixed cell grid.
 local SPECIES = {
-  fox   = { width = 11, height = 5 },
-  panda = { width = 10, height = 5 },
+  fox    = { width = 11, height = 5 }, -- 92x75 ≈ 1.23:1
+  panda  = { width = 10, height = 5 }, -- 96x96 = 1.00:1
+  dog    = { width = 12, height = 5 }, -- 174x115 ≈ 1.51:1 (akita)
+  turtle = { width = 11, height = 5 }, -- 115x90 ≈ 1.28:1 (green)
 }
 
 local function plugin_root()
@@ -299,7 +301,7 @@ end
 function M.set_pet(name)
   local sd = SPECIES[name]
   if not sd then
-    vim.notify("nvim-pets: unknown species '" .. tostring(name) .. "' (have: fox, panda)", vim.log.levels.WARN)
+    vim.notify("nvim-pets: unknown species '" .. tostring(name) .. "' (have: fox, panda, dog, turtle)", vim.log.levels.WARN)
     return
   end
   config.pet = name

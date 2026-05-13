@@ -37,7 +37,7 @@ set -g focus-events on
   config = function()
     require("pets").setup({
       -- All optional; values shown are the defaults.
-      pet    = "fox",          -- "fox" | "panda"
+      pet    = "fox",          -- "fox" | "panda" | "dog" | "turtle"
       width  = 11,             -- sprite width in cells (overrides species default)
       height = 5,              -- sprite height in cells (overrides species default)
       fps    = 8,
@@ -59,7 +59,7 @@ set -g focus-events on
 | `:PetsResize <w> <h>` | resize sprite (cells); auto-grows the box if needed |
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
-| `:PetsType <name>` | switch species (`fox` / `panda`) |
+| `:PetsType <name>` | switch species (`fox` / `panda` / `dog` / `turtle`) |
 | `:PetsState` | print current pet / action / direction / position / size / area |
 | `:PetsPeek` / `:PetsWiggle` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
@@ -105,7 +105,8 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.1.5: bounded wander box, runtime size/area/corner commands, image-cache fix
 - [x] v1.2: lifestyle events — save peek, idle sleep, random wiggle
 - [x] v1.3.1: multi-species — `panda` added alongside `fox`, runtime switch via `:PetsType`
-- [ ] v1.3.2: add more species (dog, totoro) and per-species signature animations
+- [x] v1.3.2: `dog` (akita shiba) and `turtle` (green) added
+- [ ] v1.3.3: per-species signature animations (e.g. dog tail wag, turtle slow pace)
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License

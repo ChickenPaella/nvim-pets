@@ -16,3 +16,15 @@
   (extracted as PNG sequences via `magick … -coalesce`; the opposite-facing variant generated with `-flop`)
 - License: MIT
 - Copyright (c) 2022 Anthony Shaw
+
+### `sprites/dog/{idle,walk,lie}_{l,r}/*.png`
+
+- Source: [vscode-pets](https://github.com/tonybaloney/vscode-pets) — `media/dog/akita_{idle,walk,lie}_8fps.gif`
+- License: MIT
+- Copyright (c) 2022 Anthony Shaw
+
+### `sprites/turtle/{idle,walk,lie}_{l,r}/*.png`
+
+- Source: [vscode-pets](https://github.com/tonybaloney/vscode-pets) — `media/turtle/green_{idle,walk,lie}_8fps.gif`
+- License: MIT
+- Copyright (c) 2022 Anthony Shaw
