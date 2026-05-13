@@ -16,7 +16,7 @@ local state = {
 local config = {
   pet = "fox",
   sprite_root = nil,
-  sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r" },
+  sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r", "swipe_l", "swipe_r" },
   fps = 8,
   width = 11,
   height = 5,
@@ -34,16 +34,47 @@ local CORNERS = { br = true, bl = true, tr = true, tl = true }
 local PAD_LEFT, PAD_RIGHT = 2, 2
 local PAD_TOP,  PAD_BOTTOM = 1, 3
 
--- Per-species defaults. Sprite sheets have different native aspect ratios,
--- so each species needs its own cell size to avoid bad stretching when
--- rendered on a fixed cell grid. walk_period = master ticks per cell of
--- walking motion (lower = faster); the default tick rate is 8fps, so a
--- walk_period of 2 means 4 cells/sec.
+-- Per-species defaults. Each entry holds:
+--   width / height — cell size, picked to match the sprite's native
+--     aspect ratio so the image isn't squashed or stretched.
+--   walk_period — master ticks between cell-by-cell moves while walking
+--     (lower = faster). The default tick rate is 8fps.
+--   transitions — wander state machine probability table; each row sums
+--     to 1.0. Tuned to give each species a personality (fox is restless,
+--     turtle is sleepy, panda is mellow, dog is balanced).
 local SPECIES = {
-  fox    = { width = 11, height = 5, walk_period = 2 }, -- 92x75 ≈ 1.23:1
-  panda  = { width = 10, height = 5, walk_period = 2 }, -- 96x96 = 1.00:1
-  dog    = { width = 12, height = 5, walk_period = 2 }, -- 174x115 ≈ 1.51:1 (akita)
-  turtle = { width = 11, height = 5, walk_period = 6 }, -- 115x90 ≈ 1.28:1 (green) — slow on purpose
+  fox = {
+    width = 11, height = 5, walk_period = 2, -- 92x75 ≈ 1.23:1
+    transitions = {
+      idle = { idle = 0.50, walk = 0.45, lie = 0.05 },
+      walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
+      lie  = { lie = 0.60, idle = 0.40 },
+    },
+  },
+  panda = {
+    width = 10, height = 5, walk_period = 2, -- 96x96 = 1.00:1
+    transitions = {
+      idle = { idle = 0.55, walk = 0.25, lie = 0.20 },
+      walk = { walk = 0.70, idle = 0.25, lie = 0.05 },
+      lie  = { lie = 0.75, idle = 0.25 },
+    },
+  },
+  dog = {
+    width = 12, height = 5, walk_period = 2, -- 174x115 ≈ 1.51:1 (akita)
+    transitions = {
+      idle = { idle = 0.55, walk = 0.40, lie = 0.05 },
+      walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
+      lie  = { lie = 0.65, idle = 0.35 },
+    },
+  },
+  turtle = {
+    width = 11, height = 5, walk_period = 6, -- 115x90 ≈ 1.28:1 (green)
+    transitions = {
+      idle = { idle = 0.55, walk = 0.15, lie = 0.30 },
+      walk = { walk = 0.60, idle = 0.30, lie = 0.10 },
+      lie  = { lie = 0.80, idle = 0.20 },
+    },
+  },
 }
 
 local function plugin_root()
@@ -67,6 +98,7 @@ function M.setup(opts)
   config.width  = opts.width  or sd.width
   config.height = opts.height or sd.height
   config.walk_period = opts.walk_period or sd.walk_period
+  config.transitions = sd.transitions
   if opts.fps    then config.fps    = opts.fps    end
   if opts.area then
     if opts.area.corner then
@@ -231,6 +263,7 @@ function M.show()
   local start_col = math.max(0, math.floor((config.area.cols - config.width) / 2))
   pet.init(start_col, 0)
   pet.set_walk_period(config.walk_period or 2)
+  if config.transitions then pet.set_transitions(config.transitions) end
   state.frame_idx = 1
 
   local initial_set = pet.current_set()
@@ -329,6 +362,7 @@ function M.set_pet(name)
   config.width  = sd.width
   config.height = sd.height
   config.walk_period = sd.walk_period
+  config.transitions = sd.transitions
   -- Ensure the wander box still contains the new sprite.
   if config.area.cols < config.width  then config.area.cols = config.width  end
   if config.area.rows < config.height then config.area.rows = config.height end

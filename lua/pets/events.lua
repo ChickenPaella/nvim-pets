@@ -13,10 +13,13 @@ local renderer = require("pets.renderer")
 -- Tunables — kept here rather than in setup() so they're easy to find.
 local PEEK_TICKS = 8                -- ~1s pause after :w
 local WIGGLE_TICKS = 12             -- ~1.5s head-shake
+local SWIPE_TICKS = 12              -- ~1.5s species-signature animation
 local IDLE_THRESHOLD_S = 10 * 60    -- 10 minutes → drift to sleep
 local IDLE_CHECK_INTERVAL_MS = 30 * 1000
 local WIGGLE_BASE_S = 5 * 60        -- average gap between random wiggles
 local WIGGLE_JITTER_S = 2 * 60      -- ± jitter so timing isn't predictable
+local SWIPE_BASE_S = 4 * 60         -- average gap between species swipes
+local SWIPE_JITTER_S = 90           -- ± jitter
 local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
 local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
@@ -26,6 +29,7 @@ local was_visible_before_blur = false
 
 local idle_timer = nil
 local wiggle_timer = nil
+local swipe_timer = nil
 local focus_reshow_timer = nil
 
 local function peek_dir()
@@ -86,6 +90,19 @@ local function schedule_next_wiggle()
   end))
 end
 
+local function schedule_next_swipe()
+  stop_timer(swipe_timer)
+  local jitter = math.random(-SWIPE_JITTER_S, SWIPE_JITTER_S)
+  local delay_ms = math.max(60 * 1000, (SWIPE_BASE_S + jitter) * 1000)
+  swipe_timer = vim.uv.new_timer()
+  swipe_timer:start(delay_ms, 0, vim.schedule_wrap(function()
+    if renderer.is_visible() and not pet.is_sleeping() and not pet.is_busy() then
+      pet.swipe(SWIPE_TICKS)
+    end
+    schedule_next_swipe()
+  end))
+end
+
 local function start_idle_timer()
   stop_timer(idle_timer)
   idle_timer = vim.uv.new_timer()
@@ -99,9 +116,11 @@ end
 local function stop_all_timers()
   stop_timer(idle_timer)
   stop_timer(wiggle_timer)
+  stop_timer(swipe_timer)
   stop_timer(focus_reshow_timer)
   idle_timer = nil
   wiggle_timer = nil
+  swipe_timer = nil
   focus_reshow_timer = nil
 end
 
@@ -164,11 +183,13 @@ function M.setup()
 
   start_idle_timer()
   schedule_next_wiggle()
+  schedule_next_swipe()
 end
 
 -- Test/debug entry points used by :Pets* commands.
 function M.trigger_peek()   pet.peek(peek_dir(), PEEK_TICKS) end
 function M.trigger_wiggle() pet.wiggle(WIGGLE_TICKS) end
+function M.trigger_swipe()  pet.swipe(SWIPE_TICKS) end
 function M.trigger_sleep()  pet.sleep() end
 function M.trigger_wake()   pet.wake() end
 

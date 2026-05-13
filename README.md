@@ -61,10 +61,23 @@ set -g focus-events on
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
 | `:PetsType <name>` | switch species (`fox` / `panda` / `dog` / `turtle`) |
 | `:PetsState` | print current pet / action / direction / position / size / area |
-| `:PetsPeek` / `:PetsWiggle` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
+| `:PetsPeek` / `:PetsWiggle` / `:PetsSwipe` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
+
+## Species personality
+
+Each species has its own wander transition probabilities so the way it
+spends time differs:
+
+- **fox** — restless: highest `walk` probability, shortest `lie` runs
+- **dog** — balanced: walks and idles a lot, occasionally lies down
+- **panda** — mellow: lies down often even from `idle`, walks less
+- **turtle** — sleepy: spends most of its time lying down, walks slowly
+
+Combined with the per-species sprite and the periodic swipe animation,
+the four pets read as visibly distinct over a session.
 
 ## Lifestyle events (v1.2)
 
@@ -79,6 +92,10 @@ The pet stays in its corner but reacts to your editing rhythm:
 - **Random wiggle** — every ~5 minutes (±2 min jitter), if the pet isn't
   busy, it does a short head-shake (~1.5s of rapid left/right flips).
   Background sign of life.
+- **Species swipe** — every ~4 minutes (±90s jitter), the pet plays its
+  species-specific swipe animation (fox paw, panda hands-up, dog paw,
+  turtle reach). This is what makes each species feel different beyond
+  just the sprite.
 - **Focus loss** — `FocusLost` (e.g. tmux pane move, app switch) tears
   the float down completely; `FocusGained` brings it back after a short
   defer. This is more aggressive than image.nvim's
@@ -106,7 +123,8 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.2: lifestyle events — save peek, idle sleep, random wiggle
 - [x] v1.3.1: multi-species — `panda` added alongside `fox`, runtime switch via `:PetsType`
 - [x] v1.3.2: `dog` (akita shiba) and `turtle` (green) added
-- [ ] v1.3.3: per-species signature animations (e.g. dog tail wag, turtle slow pace)
+- [x] v1.3.3: per-species personality — distinct wander probabilities + a periodic swipe signature animation
+- [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License

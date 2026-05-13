@@ -11,7 +11,9 @@ local WIGGLE_FLIP_PERIOD = 2     -- dir flip every 250ms during wiggle
 -- species (turtle is much slower than fox, etc.).
 local walk_period = 2
 
--- Transition probability tables; rows must each sum to 1.0.
+-- Default wander transition table; rows must each sum to 1.0. Renderer
+-- can override per species via set_transitions() to flavor each pet's
+-- personality (more or less lazy, more or less restless).
 local TRANSITIONS = {
   idle = { idle = 0.60, walk = 0.35, lie = 0.05 },
   walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
@@ -68,17 +70,25 @@ function M.set_walk_period(n)
   end
 end
 
+-- Renderer injects a species-specific wander transition table here.
+function M.set_transitions(t)
+  if type(t) == "table" then
+    TRANSITIONS = t
+  end
+end
+
 function M.is_sleeping() return state.action == "sleep" end
 function M.is_busy()
   return state.action == "peek"
       or state.action == "wiggle"
+      or state.action == "swipe"
       or state.action == "sleep"
 end
 
 function M.current_set()
-  -- peek/wiggle reuse the idle frames; sleep reuses lie.
-  -- Visual difference comes from dir locking (peek), rapid dir flips
-  -- (wiggle), and frozen state (sleep).
+  -- peek/wiggle reuse the idle frames; sleep reuses lie; swipe has its
+  -- own sprite set. The visual difference for peek/wiggle comes from
+  -- dir locking and rapid dir flips, not from frame data.
   local action = state.action
   if action == "peek" or action == "wiggle" then
     action = "idle"
@@ -104,6 +114,14 @@ function M.wiggle(ticks)
   state.action = "wiggle"
   state.transient_remaining = ticks or 12
   state.wiggle_flip_throttle = 0
+end
+
+-- Species signature animation — plays the swipe sprite once. Caller picks
+-- ticks long enough for at least one sprite cycle.
+function M.swipe(ticks)
+  if M.is_busy() then return end
+  state.action = "swipe"
+  state.transient_remaining = ticks or 12
 end
 
 -- Long-form lying down. Stays until wake() is called.
@@ -162,7 +180,7 @@ local function tick_transient()
 end
 
 function M.tick(bounds)
-  if state.action == "peek" or state.action == "wiggle" then
+  if state.action == "peek" or state.action == "wiggle" or state.action == "swipe" then
     return tick_transient()
   end
   if state.action == "sleep" then
