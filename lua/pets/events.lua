@@ -20,6 +20,11 @@ local WIGGLE_BASE_S = 5 * 60        -- average gap between random wiggles
 local WIGGLE_JITTER_S = 2 * 60      -- ± jitter so timing isn't predictable
 local SWIPE_BASE_S = 4 * 60         -- average gap between species swipes
 local SWIPE_JITTER_S = 90           -- ± jitter
+local OBJECT_SPAWN_BASE_S = 3 * 60  -- average gap between environment-object spawns
+local OBJECT_SPAWN_JITTER_S = 60
+local OBJECT_INTERACT_TICKS = 24    -- ~3s of interaction once the pet arrives
+local OBJECT_MIN_DISTANCE = 6       -- spawn at least N cells from the pet so it walks
+local OBJECT_WATCHER_INTERVAL_MS = 500
 local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
 local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
@@ -30,6 +35,8 @@ local was_visible_before_blur = false
 local idle_timer = nil
 local wiggle_timer = nil
 local swipe_timer = nil
+local object_timer = nil
+local object_watcher_timer = nil
 local focus_reshow_timer = nil
 
 local function peek_dir()
@@ -103,6 +110,45 @@ local function schedule_next_swipe()
   end))
 end
 
+local function try_spawn_object()
+  if not renderer.is_visible() then return end
+  if renderer.has_object() then return end
+  if pet.is_sleeping() or pet.is_busy() then return end
+  local x = renderer.random_object_x(OBJECT_MIN_DISTANCE)
+  if renderer.spawn_object("ball", x) then
+    pet.approach_to(x, OBJECT_INTERACT_TICKS)
+  end
+end
+
+local function schedule_next_object()
+  stop_timer(object_timer)
+  local jitter = math.random(-OBJECT_SPAWN_JITTER_S, OBJECT_SPAWN_JITTER_S)
+  local delay_ms = math.max(60 * 1000, (OBJECT_SPAWN_BASE_S + jitter) * 1000)
+  object_timer = vim.uv.new_timer()
+  object_timer:start(delay_ms, 0, vim.schedule_wrap(function()
+    try_spawn_object()
+    schedule_next_object()
+  end))
+end
+
+-- Despawn the active object once the pet has finished interacting with
+-- it (state went back to wander). The watcher polls at low frequency
+-- because the only thing it needs to catch is the interacting → idle
+-- transition, which only happens once per spawn.
+local function start_object_watcher()
+  stop_timer(object_watcher_timer)
+  object_watcher_timer = vim.uv.new_timer()
+  object_watcher_timer:start(
+    OBJECT_WATCHER_INTERVAL_MS,
+    OBJECT_WATCHER_INTERVAL_MS,
+    vim.schedule_wrap(function()
+      if renderer.has_object() and not pet.is_object_busy() then
+        renderer.despawn_object()
+      end
+    end)
+  )
+end
+
 local function start_idle_timer()
   stop_timer(idle_timer)
   idle_timer = vim.uv.new_timer()
@@ -117,10 +163,14 @@ local function stop_all_timers()
   stop_timer(idle_timer)
   stop_timer(wiggle_timer)
   stop_timer(swipe_timer)
+  stop_timer(object_timer)
+  stop_timer(object_watcher_timer)
   stop_timer(focus_reshow_timer)
   idle_timer = nil
   wiggle_timer = nil
   swipe_timer = nil
+  object_timer = nil
+  object_watcher_timer = nil
   focus_reshow_timer = nil
 end
 
@@ -184,12 +234,15 @@ function M.setup()
   start_idle_timer()
   schedule_next_wiggle()
   schedule_next_swipe()
+  schedule_next_object()
+  start_object_watcher()
 end
 
 -- Test/debug entry points used by :Pets* commands.
 function M.trigger_peek()   pet.peek(peek_dir(), PEEK_TICKS) end
 function M.trigger_wiggle() pet.wiggle(WIGGLE_TICKS) end
 function M.trigger_swipe()  pet.swipe(SWIPE_TICKS) end
+function M.trigger_object() try_spawn_object() end
 function M.trigger_sleep()  pet.sleep() end
 function M.trigger_wake()   pet.wake() end
 

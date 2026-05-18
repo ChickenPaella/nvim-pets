@@ -21,14 +21,16 @@ local TRANSITIONS = {
 }
 
 local state = {
-  action = "idle", -- idle / walk / lie / peek / wiggle / sleep
+  action = "idle", -- idle / walk / lie / peek / wiggle / swipe / sleep / approaching / interacting
   dir = "right",
   col = 0,
   row = 0,
   decision_throttle = 0,
   walk_throttle = 0,
-  transient_remaining = 0, -- countdown for peek/wiggle; sleep has no timer
+  transient_remaining = 0, -- countdown for peek/wiggle/swipe/interacting
   wiggle_flip_throttle = 0,
+  target_col = 0,          -- destination while approaching
+  interact_ticks = 0,      -- how long to interact once we arrive
 }
 
 local function pick(probs)
@@ -83,17 +85,26 @@ function M.is_busy()
       or state.action == "wiggle"
       or state.action == "swipe"
       or state.action == "sleep"
+      or state.action == "approaching"
+      or state.action == "interacting"
+end
+function M.is_object_busy()
+  return state.action == "approaching" or state.action == "interacting"
 end
 
 function M.current_set()
-  -- peek/wiggle reuse the idle frames; sleep reuses lie; swipe has its
-  -- own sprite set. The visual difference for peek/wiggle comes from
-  -- dir locking and rapid dir flips, not from frame data.
+  -- peek/wiggle reuse idle frames; sleep reuses lie; approaching reuses
+  -- walk; interacting reuses swipe. Animation slot is decided here so
+  -- the renderer doesn't need to know the lifecycle states.
   local action = state.action
   if action == "peek" or action == "wiggle" then
     action = "idle"
   elseif action == "sleep" then
     action = "lie"
+  elseif action == "approaching" then
+    action = "walk"
+  elseif action == "interacting" then
+    action = "swipe"
   end
   return action .. (state.dir == "left" and "_l" or "_r")
 end
@@ -122,6 +133,19 @@ function M.swipe(ticks)
   if M.is_busy() then return end
   state.action = "swipe"
   state.transient_remaining = ticks or 12
+end
+
+-- Walk toward target_col, then auto-transition into interacting for
+-- interact_ticks before returning to idle. Caller (events.lua) uses this
+-- when an environment object spawns and the pet should engage with it.
+function M.approach_to(target_col, interact_ticks)
+  if M.is_busy() then return false end
+  state.action = "approaching"
+  state.target_col = target_col
+  state.interact_ticks = interact_ticks or 24
+  state.dir = (target_col < state.col) and "left" or "right"
+  state.walk_throttle = 0
+  return true
 end
 
 -- Long-form lying down. Stays until wake() is called.
@@ -179,8 +203,30 @@ local function tick_transient()
   end
 end
 
+local function tick_approaching()
+  state.walk_throttle = state.walk_throttle + 1
+  if state.walk_throttle < walk_period then return end
+  state.walk_throttle = 0
+
+  if state.col == state.target_col then
+    -- Arrived: switch to interacting using the same transient countdown
+    -- machinery as swipe / wiggle.
+    state.action = "interacting"
+    state.transient_remaining = state.interact_ticks
+    return
+  end
+
+  local dx = (state.col < state.target_col) and 1 or -1
+  state.col = state.col + dx
+  state.dir = (dx == -1) and "left" or "right"
+end
+
 function M.tick(bounds)
-  if state.action == "peek" or state.action == "wiggle" or state.action == "swipe" then
+  if state.action == "approaching" then return tick_approaching() end
+  if state.action == "peek"
+      or state.action == "wiggle"
+      or state.action == "swipe"
+      or state.action == "interacting" then
     return tick_transient()
   end
   if state.action == "sleep" then

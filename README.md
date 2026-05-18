@@ -61,7 +61,7 @@ set -g focus-events on
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
 | `:PetsType <name>` | switch species (`fox` / `panda` / `dog` / `turtle`) |
 | `:PetsState` | print current pet / action / direction / position / size / area |
-| `:PetsPeek` / `:PetsWiggle` / `:PetsSwipe` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
+| `:PetsPeek` / `:PetsWiggle` / `:PetsSwipe` / `:PetsObject` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
@@ -96,6 +96,11 @@ The pet stays in its corner but reacts to your editing rhythm:
   species-specific swipe animation (fox paw, panda hands-up, dog paw,
   turtle reach). This is what makes each species feel different beyond
   just the sprite.
+- **Environment objects** — every ~3 minutes (±60s jitter), a ball appears
+  somewhere in the wander box. The pet walks over to it (using the walk
+  sprite), plays the species swipe animation for ~3 seconds, then the
+  ball disappears and normal wandering resumes. Only one object is active
+  at a time, and the timer is skipped while the pet is busy or asleep.
 - **Focus loss** — `FocusLost` (e.g. tmux pane move, app switch) tears
   the float down completely; `FocusGained` brings it back after a short
   defer. This is more aggressive than image.nvim's
@@ -124,7 +129,8 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.3.1: multi-species — `panda` added alongside `fox`, runtime switch via `:PetsType`
 - [x] v1.3.2: `dog` (akita shiba) and `turtle` (green) added
 - [x] v1.3.3: per-species personality — distinct wander probabilities + a periodic swipe signature animation
-- [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
+- [x] v1.4.1: environment objects — ball spawns, pet approaches, plays swipe, ball despawns
+- [ ] v1.4.2: more objects (food bowl, box) and species-specific interaction sprites
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License

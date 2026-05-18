@@ -11,6 +11,7 @@ local state = {
   frames = {},
   image_cache = {}, -- cache[path .. "@" .. x] = image object, keeps us from
                     -- leaking a fresh image.nvim object every tick.
+  object = nil,     -- { type, x, y, width, height, sprite_path, image } | nil
 }
 
 local config = {
@@ -28,6 +29,17 @@ local config = {
 }
 
 local CORNERS = { br = true, bl = true, tr = true, tl = true }
+
+-- Environment objects the pet can interact with. Each entry says where
+-- the object's sprite lives (relative to the plugin root) and how many
+-- cells it occupies. y_from_bottom = how far above the wander box floor
+-- the object sits (1 = sitting on the floor row).
+local OBJECTS = {
+  ball = {
+    sprite = "objects/ball.png",
+    width = 2, height = 1, y_from_bottom = 1,
+  },
+}
 
 -- Margins between the wander box and the editor's edges. The bottom margin
 -- is larger because the statusline and cmdline occupy the lowest rows.
@@ -204,6 +216,30 @@ local function clear_image_cache()
   state.image_cache = {}
 end
 
+local function render_object(image_mod)
+  local obj = state.object
+  if not obj then return end
+  if not obj.image then
+    obj.image = image_mod.from_file(obj.sprite_path, {
+      id = "nvim-pets-object-" .. obj.type,
+      window = state.win,
+      buffer = state.buf,
+      x = obj.x,
+      y = obj.y,
+      width = obj.width,
+      height = obj.height,
+    })
+  end
+  pcall(function() obj.image:render() end)
+end
+
+local function clear_object_image()
+  if state.object and state.object.image then
+    pcall(function() state.object.image:clear() end)
+    state.object.image = nil
+  end
+end
+
 local function master_tick(image_mod)
   if not (state.win and vim.api.nvim_win_is_valid(state.win)) then
     M.hide()
@@ -211,6 +247,10 @@ local function master_tick(image_mod)
   end
 
   pet.tick(compute_bounds())
+
+  -- Render the object first so the pet (placed below) ends up on top in
+  -- z-order when they share a column.
+  render_object(image_mod)
 
   local cur_set = pet.current_set()
   local set_frames = state.frames[cur_set]
@@ -280,7 +320,9 @@ end
 function M.hide()
   stop_timer()
   clear_current()
+  clear_object_image()
   clear_image_cache()
+  state.object = nil
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     vim.api.nvim_win_close(state.win, true)
   end
@@ -345,6 +387,45 @@ function M.species_list()
   for name in pairs(SPECIES) do names[#names + 1] = name end
   table.sort(names)
   return names
+end
+
+function M.has_object()
+  return state.object ~= nil
+end
+
+-- Pick a random x for an object inside the wander box, biased to be at
+-- least `min_distance` cells away from the pet so the pet has to walk to
+-- get there. Falls back to any valid x if no spot satisfies the distance.
+function M.random_object_x(min_distance)
+  local def = OBJECTS.ball
+  local max_x = math.max(0, config.area.cols - def.width)
+  min_distance = min_distance or 0
+  for _ = 1, 5 do
+    local x = math.random(0, max_x)
+    if math.abs(x - pet.col()) >= min_distance then return x end
+  end
+  return math.random(0, max_x)
+end
+
+function M.spawn_object(type, x)
+  if state.object then return false end
+  local def = OBJECTS[type]
+  if not def then return false end
+  state.object = {
+    type = type,
+    x = x,
+    y = math.max(0, config.area.rows - def.y_from_bottom - def.height + 1),
+    width = def.width,
+    height = def.height,
+    sprite_path = plugin_root() .. "/sprites/" .. def.sprite,
+    image = nil,
+  }
+  return true
+end
+
+function M.despawn_object()
+  clear_object_image()
+  state.object = nil
 end
 
 function M.set_pet(name)

@@ -28,3 +28,9 @@
 - Source: [vscode-pets](https://github.com/tonybaloney/vscode-pets) — `media/turtle/green_{idle,walk,lie,swipe}_8fps.gif`
 - License: MIT
 - Copyright (c) 2022 Anthony Shaw
+
+### `sprites/objects/ball.png`
+
+- Hand-drawn with ImageMagick (filled red circle with dark outline + soft
+  highlight). Not derived from any third-party asset.
+- License: MIT (same as this project).

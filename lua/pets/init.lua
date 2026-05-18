@@ -17,6 +17,7 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PetsPeek",   events.trigger_peek,   { desc = "nvim-pets: trigger a peek (debug)" })
   vim.api.nvim_create_user_command("PetsWiggle", events.trigger_wiggle, { desc = "nvim-pets: trigger a wiggle (debug)" })
   vim.api.nvim_create_user_command("PetsSwipe",  events.trigger_swipe,  { desc = "nvim-pets: trigger a species swipe (debug)" })
+  vim.api.nvim_create_user_command("PetsObject", events.trigger_object, { desc = "nvim-pets: spawn an object for the pet (debug)" })
   vim.api.nvim_create_user_command("PetsSleep",  events.trigger_sleep,  { desc = "nvim-pets: put the pet to sleep (debug)" })
   vim.api.nvim_create_user_command("PetsWake",   events.trigger_wake,   { desc = "nvim-pets: wake the pet up (debug)" })
 
