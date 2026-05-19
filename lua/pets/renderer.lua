@@ -94,6 +94,30 @@ local function plugin_root()
   return vim.fn.fnamemodify(source, ":h:h:h")
 end
 
+local terminal_warned = false
+
+-- One-shot warning when nvim is running in a terminal that almost
+-- certainly can't render Kitty Graphics. We don't refuse to start —
+-- new terminals can be missing from our list — but we want the team
+-- member to know why nothing's showing up.
+local function maybe_warn_about_terminal()
+  if terminal_warned then return end
+  terminal_warned = true
+
+  if vim.env.KITTY_WINDOW_ID then return end
+  local prog = vim.env.TERM_PROGRAM
+  if prog == "WezTerm" or prog == "ghostty" then return end
+  -- Inside tmux the parent terminal info is hidden; trust the user.
+  if vim.env.TMUX then return end
+
+  vim.notify(
+    "nvim-pets: TERM_PROGRAM='" .. (prog or "<unset>") ..
+    "' isn't on the known-good list (Kitty, WezTerm, Ghostty). " ..
+    "Pet sprites may not render. Run :checkhealth image to verify.",
+    vim.log.levels.WARN
+  )
+end
+
 local function normalize_corner(corner)
   if corner == "bottom-right" then return "br" end
   if corner == "bottom-left"  then return "bl" end
@@ -280,6 +304,8 @@ function M.show()
   if state.win and vim.api.nvim_win_is_valid(state.win) then
     return
   end
+
+  maybe_warn_about_terminal()
 
   local ok_image, image = pcall(require, "image")
   if not ok_image then

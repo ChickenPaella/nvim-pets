@@ -16,9 +16,26 @@ configurable both at setup and at runtime via `:Pets*` commands.
 ## Requirements
 
 - Neovim >= 0.10
-- A terminal that supports the Kitty Graphics Protocol (Kitty, Ghostty, or recent WezTerm)
-- ImageMagick (`brew install imagemagick` on macOS)
+- A terminal that supports the Kitty Graphics Protocol (see compatibility below)
+- ImageMagick (`brew install imagemagick` on macOS) — only required if you
+  regenerate sprites; not needed at runtime
 - [image.nvim](https://github.com/3rd/image.nvim) (loaded automatically as a dependency)
+
+### Terminal compatibility
+
+| Terminal | Status |
+|---|---|
+| Kitty | ✅ supported |
+| WezTerm | ✅ supported |
+| Ghostty | ✅ supported |
+| iTerm2 | ❌ no Kitty Graphics support |
+| Apple Terminal | ❌ no graphics protocol |
+| Alacritty | ❌ no graphics protocol |
+| VS Code integrated terminal | ❌ no graphics protocol |
+
+If your `TERM_PROGRAM` isn't on the known-good list the plugin will print
+a one-shot warning on first `:Pets` and continue anyway, so a new terminal
+that supports the protocol will work without a code change.
 
 If you run nvim inside tmux, also enable in your `tmux.conf`:
 
