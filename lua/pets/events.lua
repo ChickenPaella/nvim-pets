@@ -9,6 +9,7 @@ local M = {}
 
 local pet = require("pets.pet")
 local renderer = require("pets.renderer")
+local blocked = require("pets.blocked")
 
 -- Tunables — kept here rather than in setup() so they're easy to find.
 local PEEK_TICKS = 8                -- ~1s pause after :w
@@ -25,6 +26,7 @@ local OBJECT_SPAWN_JITTER_S = 60
 local OBJECT_INTERACT_TICKS = 24    -- ~3s of interaction once the pet arrives
 local OBJECT_MIN_DISTANCE = 6       -- spawn at least N cells from the pet so it walks
 local OBJECT_WATCHER_INTERVAL_MS = 500
+local BLOCKED_DEBOUNCE_MS = 150     -- coalesce TextChanged bursts before refreshing
 local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
 local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
@@ -38,6 +40,7 @@ local swipe_timer = nil
 local object_timer = nil
 local object_watcher_timer = nil
 local focus_reshow_timer = nil
+local blocked_timer = nil
 
 local function peek_dir()
   local c = renderer.corner and renderer.corner() or "br"
@@ -115,8 +118,9 @@ local function try_spawn_object()
   if renderer.has_object() then return end
   if pet.is_sleeping() or pet.is_busy() then return end
   local x = renderer.random_object_x(OBJECT_MIN_DISTANCE)
-  if renderer.spawn_object("ball", x) then
-    pet.approach_to(x, OBJECT_INTERACT_TICKS)
+  local target_row = renderer.spawn_object("ball", x)
+  if target_row then
+    pet.approach_to(x, OBJECT_INTERACT_TICKS, target_row)
   end
 end
 
@@ -128,6 +132,21 @@ local function schedule_next_object()
   object_timer:start(delay_ms, 0, vim.schedule_wrap(function()
     try_spawn_object()
     schedule_next_object()
+  end))
+end
+
+-- Debounced blocked-grid refresh. TextChanged fires per keystroke, so we
+-- coalesce the bursts into a single refresh ~150ms after the user stops
+-- typing. Skipping when the pet isn't visible avoids work the user
+-- doesn't see.
+local function schedule_blocked_refresh()
+  if not renderer.is_visible() then return end
+  stop_timer(blocked_timer)
+  blocked_timer = vim.uv.new_timer()
+  blocked_timer:start(BLOCKED_DEBOUNCE_MS, 0, vim.schedule_wrap(function()
+    if renderer.is_visible() then
+      blocked.refresh()
+    end
   end))
 end
 
@@ -166,12 +185,14 @@ local function stop_all_timers()
   stop_timer(object_timer)
   stop_timer(object_watcher_timer)
   stop_timer(focus_reshow_timer)
+  stop_timer(blocked_timer)
   idle_timer = nil
   wiggle_timer = nil
   swipe_timer = nil
   object_timer = nil
   object_watcher_timer = nil
   focus_reshow_timer = nil
+  blocked_timer = nil
 end
 
 -- On focus loss (tmux pane move, app switch, etc.) we tear the float
@@ -224,6 +245,17 @@ function M.setup()
   vim.api.nvim_create_autocmd("FocusGained", {
     group = group,
     callback = function() pcall(on_focus_gained) end,
+  })
+
+  -- Recompute the blocked grid whenever the visible content might have
+  -- changed (typing, scrolling, layout changes, switching buffer/tab).
+  vim.api.nvim_create_autocmd({
+    "TextChanged", "TextChangedI",
+    "WinScrolled", "WinResized", "VimResized",
+    "BufWinEnter", "TabEnter",
+  }, {
+    group = group,
+    callback = function() pcall(schedule_blocked_refresh) end,
   })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {

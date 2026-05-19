@@ -60,8 +60,8 @@ set -g focus-events on
       fps    = 8,
       area = {
         corner = "br",         -- "br" | "bl" | "tr" | "tl"
-        cols   = 35,           -- wander box width in cells
-        rows   = 5,            -- wander box height in cells
+        cols   = 0,            -- 0 = auto: cover most of the editor width
+        rows   = 0,            -- 0 = auto: cover most of the editor height
       },
     })
   end,
@@ -82,6 +82,20 @@ set -g focus-events on
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
+
+## Wandering across the editor
+
+The pet roams a wander box that covers most of the editor by default
+(`area.cols = 0`, `area.rows = 0`). It walks in any of 8 directions —
+up, down, diagonals included — and refuses to step on any cell that
+currently contains visible text, signs, line numbers, or sidebar
+content. The grid of "blocked" cells is recomputed (debounced ~150ms)
+on `TextChanged`, `WinScrolled`, `WinResized`, and a few other events
+so the pet's view stays up to date as you edit.
+
+If you'd rather keep the pet in a small corner, set `area.cols` and
+`area.rows` to specific values and the `area.corner` to your preferred
+anchor.
 
 ## Species personality
 
@@ -147,7 +161,9 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.3.2: `dog` (akita shiba) and `turtle` (green) added
 - [x] v1.3.3: per-species personality — distinct wander probabilities + a periodic swipe signature animation
 - [x] v1.4.1: environment objects — ball spawns, pet approaches, plays swipe, ball despawns
-- [ ] v1.4.2: more objects (food bowl, box) and species-specific interaction sprites
+- [x] v1.4.2 (Phase 1): wander across the whole editor — 8-direction motion + buffer-aware avoidance so the pet never walks on top of code or sidebar contents
+- [ ] v1.4.3 (Phase 2): pet reacts to where the cursor is (peek toward edits)
+- [ ] v1.4.4: more objects (food bowl, box) and species-specific interaction sprites
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 
 ## License

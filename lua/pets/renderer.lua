@@ -1,6 +1,7 @@
 local M = {}
 
 local pet = require("pets.pet")
+local blocked = require("pets.blocked")
 
 local state = {
   win = nil,
@@ -23,8 +24,8 @@ local config = {
   height = 5,
   area = {
     corner = "br",
-    cols = 35,
-    rows = 5,
+    cols = 0,  -- 0 = auto: cover most of the editor (vim.o.columns - 4)
+    rows = 0,  -- 0 = auto: cover most of the editor (vim.o.lines - 4)
   },
 }
 
@@ -45,6 +46,24 @@ local OBJECTS = {
 -- is larger because the statusline and cmdline occupy the lowest rows.
 local PAD_LEFT, PAD_RIGHT = 2, 2
 local PAD_TOP,  PAD_BOTTOM = 1, 3
+
+-- Resolve area.cols / area.rows to actual cell counts. A value of 0
+-- (or anything larger than the editor can hold) means "auto" — use the
+-- full editor area minus the edge padding, with a sensible floor so
+-- the box never collapses on tiny terminals.
+local function effective_cols()
+  local c = config.area.cols
+  local cap = math.max(20, vim.o.columns - PAD_LEFT - PAD_RIGHT)
+  if c <= 0 or c > cap then return cap end
+  return c
+end
+
+local function effective_rows()
+  local r = config.area.rows
+  local cap = math.max(8, vim.o.lines - PAD_TOP - PAD_BOTTOM)
+  if r <= 0 or r > cap then return cap end
+  return r
+end
 
 -- Per-species defaults. Each entry holds:
 --   width / height — cell size, picked to match the sprite's native
@@ -155,17 +174,12 @@ local function discover_frames()
   end
 end
 
--- Pet movement is bounded by the wander box (window-relative coords).
-local function compute_bounds()
-  return { col_min = 0, col_max = config.area.cols - config.width }
-end
-
 local function compute_window_pos()
-  local cols = config.area.cols
-  local rows = config.area.rows
-  local right_x = vim.o.columns - cols - PAD_RIGHT
+  local cols = effective_cols()
+  local rows = effective_rows()
+  local right_x = math.max(0, vim.o.columns - cols - PAD_RIGHT)
   local left_x  = PAD_LEFT
-  local bot_y   = vim.o.lines - rows - PAD_BOTTOM
+  local bot_y   = math.max(0, vim.o.lines - rows - PAD_BOTTOM)
   local top_y   = PAD_TOP
 
   local c = config.area.corner
@@ -175,6 +189,27 @@ local function compute_window_pos()
   return bot_y, right_x
 end
 
+-- Bounds describe the pet's allowed (col, row) range inside the float
+-- window, plus an is_blocked callback that maps pet coords to screen
+-- coords and queries the blocked grid. The pet uses its bottom-center
+-- cell as the "feet" anchor — that's the natural ground-contact point.
+local function compute_bounds()
+  local cols = effective_cols()
+  local rows = effective_rows()
+  local float_row, float_col = compute_window_pos()
+  local foot_dx = math.floor(config.width / 2)
+  local foot_dy = config.height - 1
+  return {
+    col_min = 0,
+    col_max = math.max(0, cols - config.width),
+    row_min = 0,
+    row_max = math.max(0, rows - config.height),
+    is_blocked = function(col, row)
+      return blocked.is_blocked(float_row + row + foot_dy, float_col + col + foot_dx)
+    end,
+  }
+end
+
 local function create_float_win()
   local row, col = compute_window_pos()
   local buf = vim.api.nvim_create_buf(false, true)
@@ -182,8 +217,8 @@ local function create_float_win()
 
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = config.area.cols,
-    height = config.area.rows,
+    width = effective_cols(),
+    height = effective_rows(),
     row = row,
     col = col,
     style = "minimal",
@@ -326,8 +361,17 @@ function M.show()
 
   state.win, state.buf = create_float_win()
 
-  local start_col = math.max(0, math.floor((config.area.cols - config.width) / 2))
-  pet.init(start_col, 0)
+  -- Compute an initial blocked map before the first move so the pet
+  -- doesn't briefly stand on text. The bottom-right of the wander box
+  -- is the safest default — that's where the statusline-adjacent area
+  -- lives, usually clear of code.
+  blocked.refresh()
+
+  local ecols = effective_cols()
+  local erows = effective_rows()
+  local start_col = math.max(0, ecols - config.width - 2)
+  local start_row = math.max(0, erows - config.height - 1)
+  pet.init(start_col, start_row)
   pet.set_walk_period(config.walk_period or 2)
   if config.transitions then pet.set_transitions(config.transitions) end
   state.frame_idx = 1
@@ -355,6 +399,7 @@ function M.hide()
   state.win = nil
   state.buf = nil
   state.frame_idx = 1
+  blocked.clear()
 end
 
 function M.toggle()
@@ -383,17 +428,19 @@ end
 function M.set_size(w, h)
   if w and w > 0 then config.width  = w end
   if h and h > 0 then config.height = h end
-  if config.area.cols < config.width  then config.area.cols = config.width  end
-  if config.area.rows < config.height then config.area.rows = config.height end
+  -- Only clamp if the user explicitly set a small wander box; cols/rows = 0
+  -- means auto (full editor) and is always large enough.
+  if config.area.cols > 0 and config.area.cols < config.width  then config.area.cols = config.width  end
+  if config.area.rows > 0 and config.area.rows < config.height then config.area.rows = config.height end
   apply_config()
 end
 
 function M.set_area(cols, rows)
-  if cols and cols > 0 then
-    config.area.cols = math.max(cols, config.width)
+  if cols and cols >= 0 then
+    config.area.cols = (cols > 0) and math.max(cols, config.width) or 0
   end
-  if rows and rows > 0 then
-    config.area.rows = math.max(rows, config.height)
+  if rows and rows >= 0 then
+    config.area.rows = (rows > 0) and math.max(rows, config.height) or 0
   end
   apply_config()
 end
@@ -424,7 +471,7 @@ end
 -- get there. Falls back to any valid x if no spot satisfies the distance.
 function M.random_object_x(min_distance)
   local def = OBJECTS.ball
-  local max_x = math.max(0, config.area.cols - def.width)
+  local max_x = math.max(0, effective_cols() - def.width)
   min_distance = min_distance or 0
   for _ = 1, 5 do
     local x = math.random(0, max_x)
@@ -433,20 +480,26 @@ function M.random_object_x(min_distance)
   return math.random(0, max_x)
 end
 
+-- Returns the pet row the caller should approach to (so a horizontal
+-- walk reaches the object), or nil if the spawn was rejected.
 function M.spawn_object(type, x)
-  if state.object then return false end
+  if state.object then return nil end
   local def = OBJECTS[type]
-  if not def then return false end
+  if not def then return nil end
+  -- The object sits at the bottom of the wander box, so the pet's
+  -- bottom row aligns with the object's row when approaching.
+  local target_row = math.max(0, effective_rows() - config.height)
+  local foot_row = math.max(0, effective_rows() - def.y_from_bottom - def.height + 1)
   state.object = {
     type = type,
     x = x,
-    y = math.max(0, config.area.rows - def.y_from_bottom - def.height + 1),
+    y = foot_row,
     width = def.width,
     height = def.height,
     sprite_path = plugin_root() .. "/sprites/" .. def.sprite,
     image = nil,
   }
-  return true
+  return target_row
 end
 
 function M.despawn_object()
@@ -470,9 +523,9 @@ function M.set_pet(name)
   config.height = sd.height
   config.walk_period = sd.walk_period
   config.transitions = sd.transitions
-  -- Ensure the wander box still contains the new sprite.
-  if config.area.cols < config.width  then config.area.cols = config.width  end
-  if config.area.rows < config.height then config.area.rows = config.height end
+  -- Ensure an explicitly-sized wander box still contains the new sprite.
+  if config.area.cols > 0 and config.area.cols < config.width  then config.area.cols = config.width  end
+  if config.area.rows > 0 and config.area.rows < config.height then config.area.rows = config.height end
   apply_config()
 end
 

@@ -25,12 +25,16 @@ local state = {
   dir = "right",
   col = 0,
   row = 0,
+  dx = 0,                  -- last walk delta (col), drives momentum
+  dy = 0,                  -- last walk delta (row)
   decision_throttle = 0,
   walk_throttle = 0,
   transient_remaining = 0, -- countdown for peek/wiggle/swipe/interacting
   wiggle_flip_throttle = 0,
   target_col = 0,          -- destination while approaching
+  target_row = 0,
   interact_ticks = 0,      -- how long to interact once we arrive
+  approach_stuck_ticks = 0,
 }
 
 local function pick(probs)
@@ -53,10 +57,13 @@ function M.init(start_col, start_row)
   state.dir = "right"
   state.col = start_col
   state.row = start_row
+  state.dx = 0
+  state.dy = 0
   state.decision_throttle = 0
   state.walk_throttle = 0
   state.transient_remaining = 0
   state.wiggle_flip_throttle = 0
+  state.approach_stuck_ticks = 0
 end
 
 function M.action() return state.action end
@@ -135,16 +142,18 @@ function M.swipe(ticks)
   state.transient_remaining = ticks or 12
 end
 
--- Walk toward target_col, then auto-transition into interacting for
--- interact_ticks before returning to idle. Caller (events.lua) uses this
--- when an environment object spawns and the pet should engage with it.
-function M.approach_to(target_col, interact_ticks)
+-- Walk toward (target_col, target_row), then auto-transition into
+-- interacting for interact_ticks before returning to idle. target_row
+-- defaults to the pet's current row (horizontal-only approach).
+function M.approach_to(target_col, interact_ticks, target_row)
   if M.is_busy() then return false end
   state.action = "approaching"
   state.target_col = target_col
+  state.target_row = target_row or state.row
   state.interact_ticks = interact_ticks or 24
   state.dir = (target_col < state.col) and "left" or "right"
   state.walk_throttle = 0
+  state.approach_stuck_ticks = 0
   return true
 end
 
@@ -167,24 +176,94 @@ local function decide()
   if not probs then return end
   local next_action = pick(probs)
   if next_action == "walk" and state.action ~= "walk" then
-    state.dir = (math.random() < 0.5) and "left" or "right"
+    state.dx = (math.random() < 0.5) and -1 or 1
+    state.dy = math.random(-1, 1)
+    state.dir = (state.dx == -1) and "left" or "right"
   elseif (next_action == "idle" or next_action == "lie") and math.random() < 0.3 then
     flip_dir()
   end
   state.action = next_action
 end
 
-local function try_move(bounds)
-  local dx = (state.dir == "left") and -1 or 1
-  local new_col = state.col + dx
-  if new_col < bounds.col_min then
-    state.dir = "right"
-    new_col = state.col + 1
-  elseif new_col > bounds.col_max then
-    state.dir = "left"
-    new_col = state.col - 1
+-- Returns true if (col, row) is inside bounds and not blocked.
+local function cell_ok(bounds, col, row)
+  if col < bounds.col_min or col > bounds.col_max then return false end
+  if row < bounds.row_min or row > bounds.row_max then return false end
+  if bounds.is_blocked and bounds.is_blocked(col, row) then return false end
+  return true
+end
+
+-- One step of free-roam wandering. The pet has momentum: with 70%
+-- probability it keeps going in its current heading if that cell is
+-- available, otherwise it picks a random valid neighbour. dx/dy each
+-- live in {-1, 0, 1}; (0, 0) is excluded so the pet always moves when
+-- it has a free neighbour.
+local function step_8way(bounds)
+  local cur_dx = state.dx
+  local cur_dy = state.dy
+  if cur_dx == 0 and cur_dy == 0 then
+    cur_dx = (state.dir == "left") and -1 or 1
   end
-  state.col = new_col
+
+  if cell_ok(bounds, state.col + cur_dx, state.row + cur_dy)
+      and math.random() < 0.7 then
+    state.col = state.col + cur_dx
+    state.row = state.row + cur_dy
+    if cur_dx ~= 0 then state.dir = (cur_dx == -1) and "left" or "right" end
+    return
+  end
+
+  local candidates = {}
+  for dx = -1, 1 do
+    for dy = -1, 1 do
+      if not (dx == 0 and dy == 0)
+          and cell_ok(bounds, state.col + dx, state.row + dy) then
+        candidates[#candidates + 1] = { dx, dy }
+      end
+    end
+  end
+  if #candidates == 0 then return end
+
+  local pick = candidates[math.random(#candidates)]
+  state.dx = pick[1]
+  state.dy = pick[2]
+  state.col = state.col + state.dx
+  state.row = state.row + state.dy
+  if state.dx ~= 0 then state.dir = (state.dx == -1) and "left" or "right" end
+end
+
+-- Greedy step toward (target_col, target_row). Tries diagonal first,
+-- then axis-aligned fallbacks so the pet can shimmy around an obstacle.
+-- Returns true if the target was reached, false otherwise. Sets a stuck
+-- counter when no progress was possible so the caller can bail out.
+local function step_toward_target(bounds)
+  if state.col == state.target_col and state.row == state.target_row then
+    return true
+  end
+
+  local dx = 0
+  if state.col < state.target_col then dx = 1
+  elseif state.col > state.target_col then dx = -1 end
+  local dy = 0
+  if state.row < state.target_row then dy = 1
+  elseif state.row > state.target_row then dy = -1 end
+
+  local function try_step(ddx, ddy)
+    if ddx == 0 and ddy == 0 then return false end
+    if not cell_ok(bounds, state.col + ddx, state.row + ddy) then return false end
+    state.col = state.col + ddx
+    state.row = state.row + ddy
+    if ddx ~= 0 then state.dir = (ddx == -1) and "left" or "right" end
+    state.approach_stuck_ticks = 0
+    return true
+  end
+
+  if try_step(dx, dy) then return false end
+  if try_step(dx, 0)  then return false end
+  if try_step(0, dy)  then return false end
+
+  state.approach_stuck_ticks = state.approach_stuck_ticks + 1
+  return false
 end
 
 local function tick_transient()
@@ -203,26 +282,31 @@ local function tick_transient()
   end
 end
 
-local function tick_approaching()
+-- Approaching keeps trying to reach (target_col, target_row). If the
+-- path is blocked for a stretch of ticks we give up and return to idle
+-- so an unreachable object doesn't strand the pet forever.
+local APPROACH_STUCK_LIMIT = 16  -- ticks of no-progress before bailing
+
+local function tick_approaching(bounds)
   state.walk_throttle = state.walk_throttle + 1
   if state.walk_throttle < walk_period then return end
   state.walk_throttle = 0
 
-  if state.col == state.target_col then
-    -- Arrived: switch to interacting using the same transient countdown
-    -- machinery as swipe / wiggle.
-    state.action = "interacting"
-    state.transient_remaining = state.interact_ticks
+  if state.approach_stuck_ticks >= APPROACH_STUCK_LIMIT then
+    state.action = "idle"
+    state.approach_stuck_ticks = 0
     return
   end
 
-  local dx = (state.col < state.target_col) and 1 or -1
-  state.col = state.col + dx
-  state.dir = (dx == -1) and "left" or "right"
+  if step_toward_target(bounds) then
+    state.action = "interacting"
+    state.transient_remaining = state.interact_ticks
+    state.approach_stuck_ticks = 0
+  end
 end
 
 function M.tick(bounds)
-  if state.action == "approaching" then return tick_approaching() end
+  if state.action == "approaching" then return tick_approaching(bounds) end
   if state.action == "peek"
       or state.action == "wiggle"
       or state.action == "swipe"
@@ -243,7 +327,7 @@ function M.tick(bounds)
     state.walk_throttle = state.walk_throttle + 1
     if state.walk_throttle >= walk_period then
       state.walk_throttle = 0
-      try_move(bounds)
+      step_8way(bounds)
     end
   end
 end
