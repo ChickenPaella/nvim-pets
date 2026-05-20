@@ -13,6 +13,10 @@ local state = {
   image_cache = {}, -- cache[path .. "@" .. x] = image object, keeps us from
                     -- leaking a fresh image.nvim object every tick.
   object = nil,     -- { type, x, y, width, height, sprite_path, image } | nil
+  float_row = nil,  -- screen row of the float window's top-left, set on show()
+  float_col = nil,
+  float_cols = nil, -- effective width  (cell count) of the float
+  float_rows = nil, -- effective height
 }
 
 local config = {
@@ -47,23 +51,61 @@ local OBJECTS = {
 local PAD_LEFT, PAD_RIGHT = 2, 2
 local PAD_TOP,  PAD_BOTTOM = 1, 3
 
--- Resolve area.cols / area.rows to actual cell counts. A value of 0
--- (or anything larger than the editor can hold) means "auto" — use the
--- full editor area minus the edge padding, with a sensible floor so
--- the box never collapses on tiny terminals.
-local function effective_cols()
-  local c = config.area.cols
-  local cap = math.max(20, vim.o.columns - PAD_LEFT - PAD_RIGHT)
-  if c <= 0 or c > cap then return cap end
-  return c
+-- find_main_window picks the largest regular split (with current as a
+-- tiebreaker) so the pet float lands on the main editing area without
+-- ever covering a sidebar like nvim-tree. Floating windows themselves
+-- are ignored.
+local function find_main_window()
+  local current = vim.api.nvim_get_current_win()
+  local best, best_score = nil, -1
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local wcfg = vim.api.nvim_win_get_config(win)
+    if wcfg.relative == "" then
+      local w = vim.api.nvim_win_get_width(win)
+      local h = vim.api.nvim_win_get_height(win)
+      local score = w * h + ((win == current) and 1 or 0)
+      if score > best_score then best, best_score = win, score end
+    end
+  end
+  return best
 end
 
-local function effective_rows()
-  local r = config.area.rows
-  local cap = math.max(8, vim.o.lines - PAD_TOP - PAD_BOTTOM)
-  if r <= 0 or r > cap then return cap end
-  return r
+-- Decide where the pet's float should live. Auto mode (area.cols/rows
+-- left at 0) drops it onto the main code window. Explicit cols/rows
+-- keeps the legacy corner-anchored small-box behavior for users who
+-- want the pet tucked away.
+local function compute_float_geometry()
+  local cols, rows = config.area.cols, config.area.rows
+
+  if cols > 0 and rows > 0 then
+    local right_x = math.max(0, vim.o.columns - cols - PAD_RIGHT)
+    local left_x  = PAD_LEFT
+    local bot_y   = math.max(0, vim.o.lines - rows - PAD_BOTTOM)
+    local top_y   = PAD_TOP
+    local c = config.area.corner
+    local r, x = bot_y, right_x
+    if c == "bl" then r, x = bot_y, left_x
+    elseif c == "tr" then r, x = top_y, right_x
+    elseif c == "tl" then r, x = top_y, left_x
+    end
+    return r, x, cols, rows
+  end
+
+  local target = find_main_window()
+  if target then
+    local pos = vim.api.nvim_win_get_position(target)
+    return pos[1], pos[2],
+           vim.api.nvim_win_get_width(target),
+           vim.api.nvim_win_get_height(target)
+  end
+
+  return PAD_TOP, PAD_LEFT,
+         math.max(20, vim.o.columns - PAD_LEFT - PAD_RIGHT),
+         math.max(8,  vim.o.lines   - PAD_TOP  - PAD_BOTTOM)
 end
+
+local function effective_cols() return state.float_cols or 0 end
+local function effective_rows() return state.float_rows or 0 end
 
 -- Per-species defaults. Each entry holds:
 --   width / height — cell size, picked to match the sprite's native
@@ -174,36 +216,20 @@ local function discover_frames()
   end
 end
 
-local function compute_window_pos()
-  local cols = effective_cols()
-  local rows = effective_rows()
-  local right_x = math.max(0, vim.o.columns - cols - PAD_RIGHT)
-  local left_x  = PAD_LEFT
-  local bot_y   = math.max(0, vim.o.lines - rows - PAD_BOTTOM)
-  local top_y   = PAD_TOP
-
-  local c = config.area.corner
-  if c == "bl" then return bot_y, left_x  end
-  if c == "tr" then return top_y, right_x end
-  if c == "tl" then return top_y, left_x  end
-  return bot_y, right_x
-end
-
 -- Bounds describe the pet's allowed (col, row) range inside the float
 -- window, plus an is_blocked callback that maps pet coords to screen
 -- coords and queries the blocked grid. The pet uses its bottom-center
 -- cell as the "feet" anchor — that's the natural ground-contact point.
 local function compute_bounds()
-  local cols = effective_cols()
-  local rows = effective_rows()
-  local float_row, float_col = compute_window_pos()
+  local float_row = state.float_row or 0
+  local float_col = state.float_col or 0
   local foot_dx = math.floor(config.width / 2)
   local foot_dy = config.height - 1
   return {
     col_min = 0,
-    col_max = math.max(0, cols - config.width),
+    col_max = math.max(0, effective_cols() - config.width),
     row_min = 0,
-    row_max = math.max(0, rows - config.height),
+    row_max = math.max(0, effective_rows() - config.height),
     is_blocked = function(col, row)
       return blocked.is_blocked(float_row + row + foot_dy, float_col + col + foot_dx)
     end,
@@ -211,16 +237,15 @@ local function compute_bounds()
 end
 
 local function create_float_win()
-  local row, col = compute_window_pos()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
 
   local win = vim.api.nvim_open_win(buf, false, {
     relative = "editor",
-    width = effective_cols(),
-    height = effective_rows(),
-    row = row,
-    col = col,
+    width = state.float_cols,
+    height = state.float_rows,
+    row = state.float_row,
+    col = state.float_col,
     style = "minimal",
     focusable = false,
     zindex = 50,
@@ -359,18 +384,21 @@ function M.show()
     return
   end
 
+  -- Compute the float geometry once per show so the rest of the code
+  -- (bounds, start position, object placement) reads from a consistent
+  -- snapshot. Re-toggling :Pets re-detects the main window.
+  state.float_row, state.float_col, state.float_cols, state.float_rows = compute_float_geometry()
+
   state.win, state.buf = create_float_win()
 
-  -- Compute an initial blocked map before the first move so the pet
-  -- doesn't briefly stand on text. The bottom-right of the wander box
-  -- is the safest default — that's where the statusline-adjacent area
-  -- lives, usually clear of code.
+  -- Initial blocked map before the first move so the pet doesn't
+  -- briefly stand on text. Bottom-right of the float is the safest
+  -- default — sits just above the window's statusline area, usually
+  -- clear of code.
   blocked.refresh()
 
-  local ecols = effective_cols()
-  local erows = effective_rows()
-  local start_col = math.max(0, ecols - config.width - 2)
-  local start_row = math.max(0, erows - config.height - 1)
+  local start_col = math.max(0, state.float_cols - config.width - 2)
+  local start_row = math.max(0, state.float_rows - config.height - 1)
   pet.init(start_col, start_row)
   pet.set_walk_period(config.walk_period or 2)
   if config.transitions then pet.set_transitions(config.transitions) end
@@ -399,6 +427,8 @@ function M.hide()
   state.win = nil
   state.buf = nil
   state.frame_idx = 1
+  state.float_row, state.float_col = nil, nil
+  state.float_cols, state.float_rows = nil, nil
   blocked.clear()
 end
 
