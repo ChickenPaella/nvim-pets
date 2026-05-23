@@ -23,7 +23,11 @@ local config = {
   pet = "fox",
   sprite_root = nil,
   sets = { "idle_l", "idle_r", "walk_l", "walk_r", "lie_l", "lie_r", "swipe_l", "swipe_r" },
-  fps = 8,
+  -- 6fps instead of 8 — fewer Kitty Graphics commands per second, which
+  -- noticeably reduces the text-cursor blink some terminals exhibit
+  -- when the float overlaps the cursor's cell. Animation still feels
+  -- alive at this rate.
+  fps = 6,
   width = 11,
   height = 5,
   area = {
@@ -51,19 +55,38 @@ local OBJECTS = {
 local PAD_LEFT, PAD_RIGHT = 2, 2
 local PAD_TOP,  PAD_BOTTOM = 1, 3
 
--- find_main_window picks the largest regular split (with current as a
--- tiebreaker) so the pet float lands on the main editing area without
--- ever covering a sidebar like nvim-tree. Floating windows themselves
--- are ignored.
+-- find_main_window picks the largest regular split holding a real file
+-- buffer (buftype = ""), with the current window as a tiebreaker. This
+-- intentionally excludes terminals, quickfix lists, help, nvim-tree
+-- and similar non-code panels, so the pet always lands on the code
+-- area regardless of how the layout is split.
 local function find_main_window()
   local current = vim.api.nvim_get_current_win()
   local best, best_score = nil, -1
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     local wcfg = vim.api.nvim_win_get_config(win)
     if wcfg.relative == "" then
+      local buf = vim.api.nvim_win_get_buf(win)
+      local btype = vim.api.nvim_get_option_value("buftype", { buf = buf })
+      if btype == "" then
+        local w = vim.api.nvim_win_get_width(win)
+        local h = vim.api.nvim_win_get_height(win)
+        local score = w * h + ((win == current) and 1 or 0)
+        if score > best_score then best, best_score = win, score end
+      end
+    end
+  end
+  if best then return best end
+
+  -- Fallback: no file buffer (e.g., the user is on a Dashboard / empty
+  -- session). Use the largest non-floating window anyway so we have
+  -- something to attach to.
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local wcfg = vim.api.nvim_win_get_config(win)
+    if wcfg.relative == "" then
       local w = vim.api.nvim_win_get_width(win)
       local h = vim.api.nvim_win_get_height(win)
-      local score = w * h + ((win == current) and 1 or 0)
+      local score = w * h
       if score > best_score then best, best_score = win, score end
     end
   end

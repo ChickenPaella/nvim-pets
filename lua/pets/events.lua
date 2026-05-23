@@ -26,7 +26,6 @@ local OBJECT_SPAWN_JITTER_S = 60
 local OBJECT_INTERACT_TICKS = 24    -- ~3s of interaction once the pet arrives
 local OBJECT_MIN_DISTANCE = 6       -- spawn at least N cells from the pet so it walks
 local OBJECT_WATCHER_INTERVAL_MS = 500
-local BLOCKED_DEBOUNCE_MS = 150     -- coalesce TextChanged bursts before refreshing
 local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
 local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
@@ -40,7 +39,6 @@ local swipe_timer = nil
 local object_timer = nil
 local object_watcher_timer = nil
 local focus_reshow_timer = nil
-local blocked_timer = nil
 
 local function peek_dir()
   local c = renderer.corner and renderer.corner() or "br"
@@ -135,21 +133,6 @@ local function schedule_next_object()
   end))
 end
 
--- Debounced blocked-grid refresh. TextChanged fires per keystroke, so we
--- coalesce the bursts into a single refresh ~150ms after the user stops
--- typing. Skipping when the pet isn't visible avoids work the user
--- doesn't see.
-local function schedule_blocked_refresh()
-  if not renderer.is_visible() then return end
-  stop_timer(blocked_timer)
-  blocked_timer = vim.uv.new_timer()
-  blocked_timer:start(BLOCKED_DEBOUNCE_MS, 0, vim.schedule_wrap(function()
-    if renderer.is_visible() then
-      blocked.refresh()
-    end
-  end))
-end
-
 -- Despawn the active object once the pet has finished interacting with
 -- it (state went back to wander). The watcher polls at low frequency
 -- because the only thing it needs to catch is the interacting → idle
@@ -185,14 +168,12 @@ local function stop_all_timers()
   stop_timer(object_timer)
   stop_timer(object_watcher_timer)
   stop_timer(focus_reshow_timer)
-  stop_timer(blocked_timer)
   idle_timer = nil
   wiggle_timer = nil
   swipe_timer = nil
   object_timer = nil
   object_watcher_timer = nil
   focus_reshow_timer = nil
-  blocked_timer = nil
 end
 
 -- On focus loss (tmux pane move, app switch, etc.) we tear the float
@@ -247,15 +228,17 @@ function M.setup()
     callback = function() pcall(on_focus_gained) end,
   })
 
-  -- Recompute the blocked grid whenever the visible content might have
-  -- changed (typing, scrolling, layout changes, switching buffer/tab).
+  -- Mark the blocked grid as stale whenever visible content might have
+  -- changed. blocked.is_blocked rebuilds lazily on the next pet query,
+  -- so we don't pay a refresh per keystroke and there's no debounce
+  -- timer churning in the background.
   vim.api.nvim_create_autocmd({
     "TextChanged", "TextChangedI",
     "WinScrolled", "WinResized", "VimResized",
     "BufWinEnter", "TabEnter",
   }, {
     group = group,
-    callback = function() pcall(schedule_blocked_refresh) end,
+    callback = function() blocked.mark_dirty() end,
   })
 
   vim.api.nvim_create_autocmd("VimLeavePre", {

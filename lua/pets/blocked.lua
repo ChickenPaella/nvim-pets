@@ -17,6 +17,7 @@ local M = {}
 -- Per-row sorted by start_col so a linear scan is fast in practice
 -- (a row rarely has more than 1–2 ranges).
 local blocked_rows = {}
+local dirty = true
 
 local function add_range(row, start_col, end_col)
   if end_col <= start_col then return end
@@ -27,6 +28,8 @@ local function add_range(row, start_col, end_col)
   end
   list[#list + 1] = { start_col, end_col }
 end
+
+function M.mark_dirty() dirty = true end
 
 function M.refresh()
   blocked_rows = {}
@@ -62,9 +65,14 @@ function M.refresh()
       end
     end
   end
+  dirty = false
 end
 
+-- Lazy: a rebuild only happens on the first query after mark_dirty().
+-- Pet ticks query at most 8/sec, so even heavy typing pays only one
+-- refresh per pet tick — no extra timers, no autocmd-rate churn.
 function M.is_blocked(row, col)
+  if dirty then M.refresh() end
   local ranges = blocked_rows[row]
   if not ranges then return false end
   for _, r in ipairs(ranges) do
@@ -76,6 +84,7 @@ end
 -- Drop the cached grid (used on hide / VimLeavePre to free memory).
 function M.clear()
   blocked_rows = {}
+  dirty = true
 end
 
 return M
