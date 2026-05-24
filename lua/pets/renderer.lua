@@ -131,44 +131,47 @@ local function effective_cols() return state.float_cols or 0 end
 local function effective_rows() return state.float_rows or 0 end
 
 -- Per-species defaults. Each entry holds:
---   width / height — cell size, picked to match the sprite's native
---     aspect ratio so the image isn't squashed or stretched.
---   walk_period — master ticks between cell-by-cell moves while walking
---     (lower = faster). The default tick rate is 8fps.
---   transitions — wander state machine probability table; each row sums
---     to 1.0. Tuned to give each species a personality (fox is restless,
---     turtle is sleepy, panda is mellow, dog is balanced).
+--   width / height — cell size, deliberately small so the pet feels
+--     like an icon rather than a chunky pixel-art block. Picked to
+--     roughly match each sprite's native aspect (terminal cells are
+--     ~1:2 W:H, so N cols × M rows renders the image at N : 2M).
+--   walk_period — master ticks between cell-by-cell moves while
+--     walking (lower = faster).
+--   transitions — wander state machine probability table; each row
+--     sums to 1.0. Tuned toward "walk often" so the pet is visibly
+--     lively by default while still showing per-species personality
+--     (fox restless, turtle sleepy, panda mellow, dog balanced).
 local SPECIES = {
   fox = {
-    width = 11, height = 5, walk_period = 2, -- 92x75 ≈ 1.23:1
+    width = 7, height = 3, walk_period = 1, -- 92x75 ≈ 1.23:1
     transitions = {
-      idle = { idle = 0.50, walk = 0.45, lie = 0.05 },
-      walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
-      lie  = { lie = 0.60, idle = 0.40 },
+      idle = { idle = 0.30, walk = 0.65, lie = 0.05 },
+      walk = { walk = 0.90, idle = 0.08, lie = 0.02 },
+      lie  = { lie = 0.50, idle = 0.50 },
     },
   },
   panda = {
-    width = 10, height = 5, walk_period = 2, -- 96x96 = 1.00:1
+    width = 6, height = 3, walk_period = 2, -- 96x96 = 1.00:1
     transitions = {
-      idle = { idle = 0.55, walk = 0.25, lie = 0.20 },
-      walk = { walk = 0.70, idle = 0.25, lie = 0.05 },
-      lie  = { lie = 0.75, idle = 0.25 },
-    },
-  },
-  dog = {
-    width = 12, height = 5, walk_period = 2, -- 174x115 ≈ 1.51:1 (akita)
-    transitions = {
-      idle = { idle = 0.55, walk = 0.40, lie = 0.05 },
-      walk = { walk = 0.75, idle = 0.20, lie = 0.05 },
+      idle = { idle = 0.40, walk = 0.50, lie = 0.10 },
+      walk = { walk = 0.85, idle = 0.12, lie = 0.03 },
       lie  = { lie = 0.65, idle = 0.35 },
     },
   },
-  turtle = {
-    width = 11, height = 5, walk_period = 6, -- 115x90 ≈ 1.28:1 (green)
+  dog = {
+    width = 9, height = 3, walk_period = 1, -- 174x115 ≈ 1.51:1 (akita)
     transitions = {
-      idle = { idle = 0.55, walk = 0.15, lie = 0.30 },
-      walk = { walk = 0.60, idle = 0.30, lie = 0.10 },
-      lie  = { lie = 0.80, idle = 0.20 },
+      idle = { idle = 0.35, walk = 0.60, lie = 0.05 },
+      walk = { walk = 0.88, idle = 0.10, lie = 0.02 },
+      lie  = { lie = 0.55, idle = 0.45 },
+    },
+  },
+  turtle = {
+    width = 7, height = 3, walk_period = 4, -- 115x90 ≈ 1.28:1 (green)
+    transitions = {
+      idle = { idle = 0.50, walk = 0.30, lie = 0.20 },
+      walk = { walk = 0.80, idle = 0.18, lie = 0.02 },
+      lie  = { lie = 0.70, idle = 0.30 },
     },
   },
 }
@@ -298,8 +301,8 @@ local function clear_current()
   end
 end
 
-local function get_or_create_image(image_mod, path, x)
-  local key = path .. "@" .. x
+local function get_or_create_image(image_mod, path, x, y)
+  local key = path .. "@" .. x .. "," .. y
   local img = state.image_cache[key]
   if not img then
     img = image_mod.from_file(path, {
@@ -307,7 +310,7 @@ local function get_or_create_image(image_mod, path, x)
       window = state.win,
       buffer = state.buf,
       x = x,
-      y = 0,
+      y = y,
       width = config.width,
       height = config.height,
     })
@@ -364,7 +367,7 @@ local function master_tick(image_mod)
   if not set_frames or #set_frames == 0 then return end
 
   local next_idx = (state.frame_idx % #set_frames) + 1
-  local new_pet = get_or_create_image(image_mod, set_frames[next_idx], pet.col())
+  local new_pet = get_or_create_image(image_mod, set_frames[next_idx], pet.col(), pet.row())
 
   pcall(function() new_pet:render() end)
   if state.cur_img and state.cur_img ~= new_pet then
@@ -430,7 +433,7 @@ function M.show()
   local initial_set = pet.current_set()
   local initial_frames = state.frames[initial_set]
   if initial_frames and initial_frames[1] then
-    local img = get_or_create_image(image, initial_frames[1], pet.col())
+    local img = get_or_create_image(image, initial_frames[1], pet.col(), pet.row())
     pcall(function() img:render() end)
     state.cur_img = img
   end
