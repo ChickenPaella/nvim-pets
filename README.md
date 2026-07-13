@@ -2,13 +2,15 @@
 
 Pixel-art pets living inside your Neovim editor — vscode-pets equivalent.
 
-v1.2: an animated pet wanders inside a wander box anchored to a screen
-corner — idles, walks back and forth (bouncing off the box edges), and
-occasionally lies down to rest. The pet also reacts to your work
-without ever leaving its corner: it pauses to look at you when you
-save, drifts off to sleep after long inactivity, and surfaces a small
-random wiggle every few minutes. Sprite size, box size, and corner are
-configurable both at setup and at runtime via `:Pets*` commands.
+One (or a small flock) of animated pixel-art pets live in your editor.
+They wander across the whole buffer — walking, idling, lying down to rest
+— while carefully stepping only on empty cells, never on your code. They
+react to what you do: a pet walks over to watch the line you're editing,
+pauses to look at you when you save, frets when LSP errors appear and
+cheers when they're gone, fetches a ball you throw, drifts to sleep when
+you go idle, and keeps a persistent happiness you can feed. Species, sprite
+size, flock size and wander area are configurable at setup and at runtime
+via `:Pets*` commands.
 
 > Why build this when `pets.nvim` exists? See
 > [docs/why-built-from-scratch.md](docs/why-built-from-scratch.md).
@@ -55,6 +57,8 @@ set -g focus-events on
     require("pets").setup({
       -- All optional; values shown are the defaults.
       pet    = "fox",          -- "fox" | "panda" | "dog" | "turtle"
+      count  = 1,              -- how many pets roam at once (1-6)
+      settle_ms = 1200,        -- freeze the pets after this idle time (0 = never)
       width  = 11,             -- sprite width in cells (overrides species default)
       height = 5,              -- sprite height in cells (overrides species default)
       fps    = 8,
@@ -77,8 +81,13 @@ set -g focus-events on
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
 | `:PetsType <name>` | switch species (`fox` / `panda` / `dog` / `turtle`) |
+| `:PetsCount <n>` | set how many pets roam at once (1–6) |
 | `:PetsState` | print current pet / action / direction / position / size / area |
-| `:PetsPeek` / `:PetsWiggle` / `:PetsSwipe` / `:PetsObject` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
+| `:PetsThrow` (or `<leader>pb`) | throw a ball to the cursor; the pet fetches it |
+| `:PetsFeed` (or `<leader>pf`) | feed the pet — raises its happiness |
+| `:PetsStatus` | show the pet's happiness (0–100) and mood |
+| `:PetsPomodoro [min]` | start a focus session (default 25 min); the pet celebrates when it ends |
+| `:PetsPeek` / `:PetsWiggle` / `:PetsSwipe` / `:PetsObject` / `:PetsFollow` / `:PetsSleep` / `:PetsWake` | manually trigger lifestyle events (debug) |
 
 Any `:Pets*` config command applied while the pet is visible briefly hides
 and re-shows it with the new settings.
@@ -127,6 +136,12 @@ The pet stays in its corner but reacts to your editing rhythm:
   species-specific swipe animation (fox paw, panda hands-up, dog paw,
   turtle reach). This is what makes each species feel different beyond
   just the sprite.
+- **Cursor follow** — every ~35 seconds (±15s jitter), *if you've edited in
+  the last ~20 seconds*, the pet walks over to a free cell next to the
+  cursor and watches it for ~2.6 seconds before drifting back to wandering.
+  Only fires while you're actively editing, so the pet looks attentive
+  rather than constantly crowding the cursor. Reuses the walk → peek
+  sprites; on arrival it faces toward the cursor.
 - **Environment objects** — every ~3 minutes (±60s jitter), a ball appears
   somewhere in the wander box. The pet walks over to it (using the walk
   sprite), plays the species swipe animation for ~3 seconds, then the
@@ -141,7 +156,71 @@ The pet stays in its corner but reacts to your editing rhythm:
 
 All of this reuses the existing idle / lie sprites — no new assets.
 
-Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
+Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSwipe`, `:PetsObject`, `:PetsFollow`, `:PetsSleep`, `:PetsWake`.
+
+## Reactions, care & companionship (v1.5)
+
+The pet now reacts to what's happening and keeps a little persistent state:
+
+- **Speech bubbles** — a small rounded bubble pops above the pet for
+  reactions: `zzz` on sleep, an occasional `saved!` on `:w`, `!?` when LSP
+  errors first appear and `yay!` when the last one clears, hearts on feed,
+  a sigh when it's bored.
+- **LSP reactions** — on `DiagnosticChanged` the pet does a brief in-place
+  fluster the moment errors appear and a happy swipe when they're all gone.
+  It never leaves its spot (the old run-to-the-error behavior was too
+  disruptive).
+- **Ball throw** — `:PetsThrow` (`<leader>pb`) drops a ball at the cursor and
+  the pet runs to fetch it. The automatic ~3-minute ball spawn still happens
+  on its own too.
+- **Happiness (tamagotchi-lite)** — the pet has a happiness value (0–100)
+  that slowly decays in real time and rises when you feed it (`:PetsFeed`),
+  play fetch, or let it watch you work. It's saved to
+  `stdpath("data")/nvim-pets-mood.json` so the pet remembers across
+  sessions. `:PetsStatus` reports it; a sad pet sighs more.
+- **Pomodoro companion** — `:PetsPomodoro [minutes]` starts a focus session;
+  the pet announces it, sits with you, and celebrates with a swipe + bubble
+  when the timer rings.
+- **Day / night** — at night (22:00–06:00) the pet nods off to sleep sooner,
+  and it yawns (`~`) now and then while idle.
+
+## A whole flock (v1.6)
+
+Set `count` (1–6) and that many pets roam the editor at once, each an
+independent wanderer with the species' size, pace and personality:
+
+```lua
+require("pets").setup({ pet = "fox", count = 3 })
+```
+
+or at runtime with `:PetsCount 3`. The "lead" pet is the one that reacts to
+saves, the cursor, the ball and LSP changes; the rest keep it company. When
+two pets drift within a few cells of each other they turn and glance — a
+little flock that notices itself. The whole flock naps and wakes together.
+
+## Staying out of your way
+
+The pet is built to be ambient, not a distraction:
+
+- **Pets settle when you settle** — after ~1.2s with no cursor movement,
+  typing or scrolling, the pets freeze completely (no motion, no redraws)
+  and spring back to life the instant you do anything. Every Kitty redraw
+  briefly nudges the terminal cursor, so holding still while you read a
+  screenful of code is what actually stops the cursor from flickering. Tune
+  it with `settle_ms` (0 disables — pets always animate).
+- **Calm cursor** — even while active, a pet is only redrawn when it
+  actually moves or its frame changes; a resting pet breathes about once a
+  second rather than every frame.
+- **Never covers your cursor while typing** — if a pet would be drawn over
+  the insertion point in insert mode, that frame is skipped, so it never
+  hides what you're writing.
+- **Avoids your code** — pets only put their feet on empty cells, never on
+  text, signs, numbers or sidebar content.
+- **One bounded image per frame per pet** — sprite placements are reused and
+  repositioned rather than re-transmitted per cell, so a long session
+  doesn't pile up Kitty images.
+- **Timers only run while visible** — toggling the pet off (or losing focus)
+  stops all background work.
 
 ## Known limitations
 
@@ -162,7 +241,10 @@ Manual debug triggers: `:PetsPeek`, `:PetsWiggle`, `:PetsSleep`, `:PetsWake`.
 - [x] v1.3.3: per-species personality — distinct wander probabilities + a periodic swipe signature animation
 - [x] v1.4.1: environment objects — ball spawns, pet approaches, plays swipe, ball despawns
 - [x] v1.4.2 (Phase 1): wander across the whole editor — 8-direction motion + buffer-aware avoidance so the pet never walks on top of code or sidebar contents
-- [ ] v1.4.3 (Phase 2): pet reacts to where the cursor is (peek toward edits)
+- [x] v1.4.3 (Phase 2): pet reacts to where the cursor is — walks over to the active edit and watches (cursor follow)
+- [x] v1.5: speech bubbles, LSP reactions, ball-throw command, happiness/feeding (persisted), pomodoro companion, day/night behavior
+- [x] v1.6: multiple pets on screen at once — per-instance pet state, a configurable flock (`count`), and pets that glance at each other
+- [x] v1.6.1: non-intrusive polish — pets never draw over the cursor while you're typing
 - [ ] v1.4.4: more objects (food bowl, box) and species-specific interaction sprites
 - [ ] v1.4: environment objects (food bowl, ball, box) for richer pet interaction
 

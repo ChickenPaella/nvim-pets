@@ -18,6 +18,17 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("PetsWiggle", events.trigger_wiggle, { desc = "nvim-pets: trigger a wiggle (debug)" })
   vim.api.nvim_create_user_command("PetsSwipe",  events.trigger_swipe,  { desc = "nvim-pets: trigger a species swipe (debug)" })
   vim.api.nvim_create_user_command("PetsObject", events.trigger_object, { desc = "nvim-pets: spawn an object for the pet (debug)" })
+  vim.api.nvim_create_user_command("PetsFollow", events.trigger_follow, { desc = "nvim-pets: walk to the cursor and watch (debug)" })
+  vim.api.nvim_create_user_command("PetsThrow",  events.throw,  { desc = "nvim-pets: throw a ball to the cursor" })
+  vim.api.nvim_create_user_command("PetsFeed",   events.feed,   { desc = "nvim-pets: feed the pet (happiness up)" })
+  vim.api.nvim_create_user_command("PetsStatus", events.status, { desc = "nvim-pets: show the pet's happiness" })
+
+  vim.api.nvim_create_user_command("PetsPomodoro", function(args)
+    events.pomodoro(tonumber(args.fargs[1]))
+  end, {
+    nargs = "?",
+    desc = "nvim-pets: start a focus session (minutes, default 25)",
+  })
   vim.api.nvim_create_user_command("PetsSleep",  events.trigger_sleep,  { desc = "nvim-pets: put the pet to sleep (debug)" })
   vim.api.nvim_create_user_command("PetsWake",   events.trigger_wake,   { desc = "nvim-pets: wake the pet up (debug)" })
 
@@ -53,6 +64,13 @@ function M.setup(opts)
     nargs = 1,
     complete = function() return renderer.species_list() end,
     desc = "nvim-pets: switch pet species",
+  })
+
+  vim.api.nvim_create_user_command("PetsCount", function(args)
+    renderer.set_count(args.fargs[1])
+  end, {
+    nargs = 1,
+    desc = "nvim-pets: set how many pets roam at once (1-6)",
   })
 end
 
