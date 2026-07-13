@@ -16,8 +16,11 @@ local mood = require("pets.mood")
 local PEEK_TICKS = 8                -- ~1s pause after :w
 local WIGGLE_TICKS = 12             -- ~1.5s head-shake
 local SWIPE_TICKS = 12              -- ~1.5s species-signature animation
-local IDLE_THRESHOLD_S = 10 * 60    -- 10 minutes → drift to sleep
-local IDLE_THRESHOLD_NIGHT_S = 4 * 60 -- at night the pet nods off sooner
+-- Idle is measured from keypresses/cursor moves, so talking over a live demo
+-- (or reading code without touching the keyboard) counts as idle. Keep these
+-- generous enough that the pet doesn't nod off mid-presentation.
+local IDLE_THRESHOLD_S = 30 * 60    -- 30 minutes → drift to sleep
+local IDLE_THRESHOLD_NIGHT_S = 15 * 60 -- at night the pet nods off sooner
 local IDLE_CHECK_INTERVAL_MS = 30 * 1000
 local WIGGLE_BASE_S = 5 * 60        -- average gap between random wiggles
 local WIGGLE_JITTER_S = 2 * 60      -- ± jitter so timing isn't predictable
