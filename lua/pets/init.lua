@@ -10,6 +10,10 @@ function M.setup(opts)
     renderer.toggle()
   end, { desc = "nvim-pets: toggle pet display" })
 
+  vim.api.nvim_create_user_command("PetsHelp", function()
+    require("pets.help").show()
+  end, { desc = "nvim-pets: show a command cheat sheet" })
+
   vim.api.nvim_create_user_command("PetsState", function()
     vim.notify(renderer.debug_state(), vim.log.levels.INFO)
   end, { desc = "nvim-pets: print pet state" })
