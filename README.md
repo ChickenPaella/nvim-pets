@@ -17,27 +17,52 @@ via `:Pets*` commands.
 
 ## Requirements
 
-- Neovim >= 0.10
-- A terminal that supports the Kitty Graphics Protocol (see compatibility below)
-- ImageMagick (`brew install imagemagick` on macOS) — only required if you
-  regenerate sprites; not needed at runtime
-- [image.nvim](https://github.com/3rd/image.nvim) (loaded automatically as a dependency)
+> **Read this first.** The pet is a real image drawn through the Kitty
+> Graphics Protocol, so it only renders where three things line up: a
+> supported OS, a supported terminal, and ImageMagick. If any one is
+> missing, `:Pets` runs without error but **nothing appears**.
+
+**All of these are required at runtime:**
+
+- **Neovim >= 0.10**
+- **OS: macOS or Linux.** Windows (native) is **not supported** — see below.
+- **A Kitty Graphics Protocol terminal** — Kitty, WezTerm, or Ghostty
+  (see the table below).
+- **ImageMagick + the `magick` luarock.** `image.nvim` uses these to decode
+  and render every sprite, so they are needed **at runtime, not just for
+  regenerating sprites**. On macOS: `brew install imagemagick`, then install
+  the `magick` luarock (see image.nvim's install notes). Verify with
+  `:checkhealth image`.
+- **[image.nvim](https://github.com/3rd/image.nvim)** — loaded automatically
+  as a dependency, but it has its own system requirements (the ImageMagick
+  bullet above).
+
+### OS / platform support
+
+| Platform | Status |
+|---|---|
+| macOS | ✅ supported |
+| Linux | ✅ supported |
+| Windows (native) | ❌ not supported — `image.nvim` + ImageMagick don't run natively, and Kitty/Ghostty have no Windows build |
+| Windows (WSL2) | ⚠️ may work with WezTerm + ImageMagick inside WSL, but **untested** — don't rely on it for a live demo |
 
 ### Terminal compatibility
 
-| Terminal | Status |
-|---|---|
-| Kitty | ✅ supported |
-| WezTerm | ✅ supported |
-| Ghostty | ✅ supported |
-| iTerm2 | ❌ no Kitty Graphics support |
-| Apple Terminal | ❌ no graphics protocol |
-| Alacritty | ❌ no graphics protocol |
-| VS Code integrated terminal | ❌ no graphics protocol |
+| Terminal | macOS | Linux | Windows | Notes |
+|---|---|---|---|---|
+| Kitty | ✅ | ✅ | — | no Windows build |
+| WezTerm | ✅ | ✅ | ⚠️ | Windows build exists, but the ImageMagick/OS limits above still apply |
+| Ghostty | ✅ | ✅ | — | no Windows build |
+| iTerm2 | ❌ | — | — | no Kitty Graphics support (uses its own image protocol) |
+| Apple Terminal | ❌ | — | — | no graphics protocol |
+| Alacritty | ❌ | ❌ | ❌ | no graphics protocol |
+| VS Code integrated terminal | ❌ | ❌ | ❌ | no graphics protocol |
 
-If your `TERM_PROGRAM` isn't on the known-good list the plugin will print
-a one-shot warning on first `:Pets` and continue anyway, so a new terminal
-that supports the protocol will work without a code change.
+If your `TERM_PROGRAM` isn't on the known-good list the plugin prints a
+one-shot warning on first `:Pets` and continues anyway, so a new terminal
+that supports the protocol works without a code change. **A warning (or a
+silent no-show) almost always means the terminal or ImageMagick is the
+problem — run `:checkhealth image`.**
 
 If you run nvim inside tmux, also enable in your `tmux.conf`:
 
@@ -46,11 +71,19 @@ set -g allow-passthrough on
 set -g focus-events on
 ```
 
-## Install (lazy.nvim, local development)
+## Install (lazy.nvim)
+
+The spec below auto-detects a local checkout: if `~/nvim-pets` exists it
+loads from there (live local development); otherwise lazy.nvim clones the
+public GitHub repo. The same config therefore works on a dev machine and on
+a fresh machine (a teammate's laptop, a demo box) with no edits.
 
 ```lua
 {
-  dir = "~/projects/nvim-pets",
+  -- lazy.nvim clones this on machines without a local checkout.
+  "ChickenPaella/nvim-pets",
+  -- On a dev machine, point `dir` at your checkout instead, e.g.:
+  --   dir = vim.fn.expand("~/nvim-pets"),
   dependencies = { "3rd/image.nvim" },
   keys = { { "<leader>pp", "<cmd>Pets<cr>", desc = "Pets: toggle" } },
   config = function()
@@ -77,6 +110,7 @@ set -g focus-events on
 | Command | What it does |
 |---|---|
 | `:Pets` (or `<leader>pp`) | toggle the pet on/off |
+| `:PetsHelp` | show a floating cheat sheet of all commands |
 | `:PetsResize <w> <h>` | resize sprite (cells); auto-grows the box if needed |
 | `:PetsArea <cols> <rows>` | resize the wander box (cells) |
 | `:PetsMove <corner>` | move box to corner (`br` / `bl` / `tr` / `tl`) |
