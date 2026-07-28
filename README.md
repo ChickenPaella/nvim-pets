@@ -28,11 +28,12 @@ via `:Pets*` commands.
 - **OS: macOS or Linux.** Windows (native) is **not supported** — see below.
 - **A Kitty Graphics Protocol terminal** — Kitty, WezTerm, or Ghostty
   (see the table below).
-- **ImageMagick + the `magick` luarock.** `image.nvim` uses these to decode
-  and render every sprite, so they are needed **at runtime, not just for
-  regenerating sprites**. On macOS: `brew install imagemagick`, then install
-  the `magick` luarock (see image.nvim's install notes). Verify with
-  `:checkhealth image`.
+- **ImageMagick.** `image.nvim` uses it to decode and render every sprite, so
+  it is needed **at runtime, not just for regenerating sprites**. On macOS:
+  `brew install imagemagick`. image.nvim also needs its image processor set up:
+  either `processor = "magick_cli"` (uses the ImageMagick CLI you just
+  installed — simplest) or the default `magick` luarock. Verify the whole chain
+  with `:checkhealth image`.
 - **[image.nvim](https://github.com/3rd/image.nvim)** — loaded automatically
   as a dependency, but it has its own system requirements (the ImageMagick
   bullet above).
