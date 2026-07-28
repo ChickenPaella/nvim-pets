@@ -74,17 +74,24 @@ set -g focus-events on
 
 ## Install (lazy.nvim)
 
-The spec below auto-detects a local checkout: if `~/nvim-pets` exists it
-loads from there (live local development); otherwise lazy.nvim clones the
-public GitHub repo. The same config therefore works on a dev machine and on
-a fresh machine (a teammate's laptop, a demo box) with no edits.
+nvim-pets is a standalone plugin — drop the spec below into your lazy.nvim
+config and it clones from GitHub. It renders through **image.nvim**, which
+you must configure yourself (declaring it as a dependency is not enough): it
+needs `processor = "magick_cli"` (or the default `magick` luarock) and the
+`kitty` backend. A minimal working pair:
 
 ```lua
 {
-  -- lazy.nvim clones this on machines without a local checkout.
+  -- image.nvim: the rendering backend. Required, and must be set up.
+  "3rd/image.nvim",
+  event = "VeryLazy",
+  opts = {
+    processor = "magick_cli",  -- uses the ImageMagick CLI (brew install imagemagick)
+    backend   = "kitty",       -- Kitty Graphics Protocol
+  },
+},
+{
   "ChickenPaella/nvim-pets",
-  -- On a dev machine, point `dir` at your checkout instead, e.g.:
-  --   dir = vim.fn.expand("~/nvim-pets"),
   dependencies = { "3rd/image.nvim" },
   keys = { { "<leader>pp", "<cmd>Pets<cr>", desc = "Pets: toggle" } },
   config = function()
@@ -105,6 +112,12 @@ a fresh machine (a teammate's laptop, a demo box) with no edits.
   end,
 }
 ```
+
+> Nothing showing up? It's almost always the terminal or ImageMagick — run
+> `:checkhealth image` and see [docs/troubleshooting.md](docs/troubleshooting.md).
+
+**Local development:** if you've cloned this repo and want your edits to load
+live, replace `"ChickenPaella/nvim-pets"` with `dir = "/path/to/your/checkout"`.
 
 ## Usage
 

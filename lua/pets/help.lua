@@ -7,23 +7,23 @@ local M = {}
 -- { command, keymap, description } — keymap "" when the plugin ships none.
 -- Keymaps shown are the ones the README documents (<leader>pp/pb/pf).
 local ROWS = {
-  { title = "돌봄 · 상호작용" },
-  { ":Pets",           "<leader>pp", "펫 켜기 / 끄기" },
-  { ":PetsFeed",       "<leader>pf", "먹이주기 (행복도 ↑)" },
-  { ":PetsThrow",      "<leader>pb", "커서로 공 던지기 (물어옴)" },
-  { ":PetsStatus",     "",           "행복도 · 기분 표시" },
-  { ":PetsPomodoro",   "",           "집중 세션 [분] (기본 25)" },
-  { title = "꾸미기 · 배치" },
-  { ":PetsType",       "",           "종 변경 (fox/panda/dog/turtle)" },
-  { ":PetsCount",      "",           "무리 크기 (1–6)" },
-  { ":PetsMove",       "",           "상자 코너 (br/bl/tr/tl)" },
-  { ":PetsResize",     "",           "스프라이트 크기 (w h)" },
-  { ":PetsArea",       "",           "배회 상자 크기 (cols rows)" },
-  { ":PetsState",      "",           "현재 상태 출력" },
-  { title = "수동 트리거 (디버그)" },
-  { ":PetsPeek/Wiggle/Swipe",  "", "반응 애니메이션" },
-  { ":PetsFollow/Object",      "", "커서 따라가기 / 공 스폰" },
-  { ":PetsSleep/Wake",         "", "재우기 / 깨우기" },
+  { title = "Care · interact" },
+  { ":Pets",           "<leader>pp", "toggle the pet on / off" },
+  { ":PetsFeed",       "<leader>pf", "feed (happiness up)" },
+  { ":PetsThrow",      "<leader>pb", "throw a ball to the cursor (fetched)" },
+  { ":PetsStatus",     "",           "show happiness · mood" },
+  { ":PetsPomodoro",   "",           "focus session [min] (default 25)" },
+  { title = "Appearance · layout" },
+  { ":PetsType",       "",           "switch species (fox/panda/dog/turtle)" },
+  { ":PetsCount",      "",           "flock size (1-6)" },
+  { ":PetsMove",       "",           "box corner (br/bl/tr/tl)" },
+  { ":PetsResize",     "",           "sprite size (w h)" },
+  { ":PetsArea",       "",           "wander box size (cols rows)" },
+  { ":PetsState",      "",           "print current state" },
+  { title = "Manual triggers (debug)" },
+  { ":PetsPeek/Wiggle/Swipe",  "", "reaction animations" },
+  { ":PetsFollow/Object",      "", "follow cursor / spawn a ball" },
+  { ":PetsSleep/Wake",         "", "put to sleep / wake up" },
 }
 
 local state = { win = nil, buf = nil }
@@ -60,7 +60,7 @@ local function format_rows()
     end
   end
   lines[#lines + 1] = ""
-  lines[#lines + 1] = "  q / Esc  닫기"
+  lines[#lines + 1] = "  q / Esc  close"
   return lines
 end
 
