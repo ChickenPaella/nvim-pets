@@ -17,7 +17,8 @@ local M = {}
 local DECISION_PERIOD = 24       -- ~4s between wander decisions (at 6fps)
 local WIGGLE_FLIP_PERIOD = 2     -- dir flip ~every 330ms during wiggle
 local APPROACH_STUCK_LIMIT = 16  -- ticks of no-progress before bailing
-local RELOCATE_TRIES = 40        -- attempts to find open space when boxed in
+local RELOCATE_TRIES = 40        -- random probes for open space when boxed in
+local RELOCATE_COOLDOWN = 30     -- ticks before retrying after a failed sweep
 
 -- Default wander transition table; rows must each sum to 1.0. The renderer
 -- overrides this per species via set_transitions() to flavor each pet's
@@ -46,6 +47,7 @@ local function new_state(start_col, start_row)
     arrive_action = "interact", -- "interact" (swipe) | "watch" (peek at cursor)
     arrive_face = nil,       -- forced facing on arrival (watch faces the cursor)
     approach_stuck_ticks = 0,
+    relocate_cooldown = 0,   -- ticks to wait before re-attempting a relocate
     walk_period = 2,         -- master ticks per cell move (per species)
     transitions = DEFAULT_TRANSITIONS,
   }
@@ -76,18 +78,35 @@ end
 -- Boxed-in recovery. In a densely-filled buffer almost every cell holds
 -- text, so the pet can walk into a pocket where all 8 neighbours are
 -- blocked and then just stand there — the "roam the whole editor" promise
--- quietly stops working. When that happens we relocate the pet to a random
--- free cell so it always has somewhere to go (the area right of line ends,
--- blank lines, and below the last line are reliably open).
+-- quietly stops working. When that happens we relocate the pet to a free
+-- spot so it always has somewhere to go (the area right of line ends, blank
+-- lines, and below the last line are reliably open).
+local function place_at(s, col, row)
+  if col ~= s.col then s.dir = (col < s.col) and "left" or "right" end
+  s.col, s.row = col, row
+  s.dx, s.dy = 0, 0
+end
+
 local function relocate_to_free(s, bounds)
   for _ = 1, RELOCATE_TRIES do
     local c = math.random(bounds.col_min, bounds.col_max)
     local r = math.random(bounds.row_min, bounds.row_max)
     if cell_ok(bounds, c, r) then
-      if c ~= s.col then s.dir = (c < s.col) and "left" or "right" end
-      s.col, s.row = c, r
-      s.dx, s.dy = 0, 0
+      place_at(s, c, r)
       return true
+    end
+  end
+
+  -- Random probing gets unreliable now that a spot has to fit the pet's
+  -- whole sprite rather than a single cell, so fall back to a deterministic
+  -- sweep from the bottom-right — past the end of each line and below the
+  -- last line is where a code buffer actually has room.
+  for r = bounds.row_max, bounds.row_min, -1 do
+    for c = bounds.col_max, bounds.col_min, -1 do
+      if cell_ok(bounds, c, r) then
+        place_at(s, c, r)
+        return true
+      end
     end
   end
   return false
@@ -124,8 +143,16 @@ local function step_8way(s, bounds)
   end
   if #candidates == 0 then
     -- Boxed in by text on every side: scurry to open space instead of
-    -- freezing in place.
-    relocate_to_free(s, bounds)
+    -- freezing in place. When even the sweep finds nothing (a screen with no
+    -- sprite-sized gap left at all) back off for a while — retrying the full
+    -- sweep on every tick would burn CPU for no gain.
+    if s.relocate_cooldown > 0 then
+      s.relocate_cooldown = s.relocate_cooldown - 1
+      return
+    end
+    if not relocate_to_free(s, bounds) then
+      s.relocate_cooldown = RELOCATE_COOLDOWN
+    end
     return
   end
 

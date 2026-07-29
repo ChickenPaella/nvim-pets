@@ -24,6 +24,8 @@ local state = {
   float_col = nil,
   float_cols = nil, -- effective width  (cell count) of the float
   float_rows = nil, -- effective height
+  paused = false,   -- true while nvim is unfocused (see M.pause / M.resume)
+  image_mod = nil,  -- the image.nvim module, kept so resume() can restart
 }
 
 local config = {
@@ -266,22 +268,68 @@ end
 
 -- Bounds describe the pet's allowed (col, row) range inside the float
 -- window, plus an is_blocked callback that maps pet coords to screen
--- coords and queries the blocked grid. The pet uses its bottom-center
--- cell as the "feet" anchor — that's the natural ground-contact point.
+-- coords and queries the blocked grid.
+--
+-- The sprite is config.width × config.height cells, so the whole footprint
+-- has to be clear. Anchoring on a single bottom-center "feet" cell was the
+-- reason the pet still covered code: one empty cell at its feet was enough
+-- for the remaining ~20 cells of its body to sit on top of a line.
+local function footprint_blocked(col, row)
+  return blocked.rect_blocked(
+    (state.float_row or 0) + row,
+    (state.float_col or 0) + col,
+    config.width, config.height
+  )
+end
+
 local function compute_bounds()
-  local float_row = state.float_row or 0
-  local float_col = state.float_col or 0
-  local foot_dx = math.floor(config.width / 2)
-  local foot_dy = config.height - 1
   return {
     col_min = 0,
     col_max = math.max(0, effective_cols() - config.width),
     row_min = 0,
     row_max = math.max(0, effective_rows() - config.height),
-    is_blocked = function(col, row)
-      return blocked.is_blocked(float_row + row + foot_dy, float_col + col + foot_dx)
-    end,
+    is_blocked = footprint_blocked,
   }
+end
+
+local function overlaps_taken(taken, col, row)
+  for _, t in ipairs(taken) do
+    if col < t[1] + config.width and col + config.width > t[1]
+        and row < t[2] + config.height and row + config.height > t[2] then
+      return true
+    end
+  end
+  return false
+end
+
+-- Free sprite-sized spot nearest to (pref_col, pref_row), searched outward
+-- row by row and then column by column. Used to place pets on show(): the
+-- old code dropped them at a fixed bottom-right offset, which lands on top
+-- of code whenever the file happens to fill that corner. `taken` collects
+-- the rects already handed out so a flock doesn't spawn stacked. Returns nil
+-- when the screen has no room at all.
+local function find_free_spot(pref_col, pref_row, taken)
+  local col_max = math.max(0, effective_cols() - config.width)
+  local row_max = math.max(0, effective_rows() - config.height)
+  pref_col = math.max(0, math.min(pref_col, col_max))
+  pref_row = math.max(0, math.min(pref_row, row_max))
+
+  for dr = 0, row_max do
+    for _, row in ipairs({ pref_row - dr, pref_row + dr }) do
+      if row >= 0 and row <= row_max then
+        for dc = 0, col_max do
+          for _, col in ipairs({ pref_col + dc, pref_col - dc }) do
+            if col >= 0 and col <= col_max
+                and not overlaps_taken(taken, col, row)
+                and not footprint_blocked(col, row) then
+              return col, row
+            end
+          end
+        end
+      end
+    end
+  end
+  return nil
 end
 
 local function create_float_win()
@@ -463,6 +511,16 @@ local function render_view(view, idx, image_mod, cur_r, cur_c)
   view.last_path, view.last_x, view.last_y = path, x, y
 end
 
+-- True while *any* pet is still walking to or playing with the object. The
+-- lead pet used to be the only one asked, so with a flock the ball vanished
+-- the moment the lead was done even though the others were mid-run.
+local function any_object_busy()
+  for _, view in ipairs(state.views) do
+    if view.pet:is_object_busy() then return true end
+  end
+  return false
+end
+
 local now_ms = (vim.uv or vim.loop).now
 
 -- Called (cheaply) on every cursor move / scroll / edit so the pets know
@@ -484,7 +542,7 @@ local function master_tick(image_mod)
   -- so the interaction doesn't stall half-way.
   if config.settle_ms > 0
       and (now_ms() - state.last_motion) > config.settle_ms
-      and not (state.object and pet.is_object_busy()) then
+      and not (state.object and any_object_busy()) then
     return
   end
 
@@ -506,9 +564,9 @@ local function master_tick(image_mod)
 
   flock_glance()
 
-  -- Despawn an object as soon as the lead pet finishes with it. Folded into
-  -- the master tick so there's no separate polling timer and no visible lag.
-  if state.object and not pet.is_object_busy() then
+  -- Despawn an object once every pet is finished with it. Folded into the
+  -- master tick so there's no separate polling timer and no visible lag.
+  if state.object and not any_object_busy() then
     clear_object_image()
     state.object = nil
   end
@@ -563,14 +621,17 @@ function M.show()
 
   state.win, state.buf = create_float_win()
 
-  -- Initial blocked map before the first move so the pet doesn't
-  -- briefly stand on text. Bottom-right of the float is the safest
-  -- default — sits just above the window's statusline area, usually
-  -- clear of code.
+  -- Initial blocked map before the first placement so the pets don't
+  -- briefly stand on text. The bottom-right of the float is only the
+  -- *preferred* spawn; find_free_spot moves it if code is already there.
   blocked.refresh()
 
-  local start_col = math.max(0, state.float_cols - config.width - 2)
-  local start_row = math.max(0, state.float_rows - config.height - 1)
+  local taken = {}
+  local pref_col = math.max(0, state.float_cols - config.width - 2)
+  local pref_row = math.max(0, state.float_rows - config.height - 1)
+  local start_col, start_row = find_free_spot(pref_col, pref_row, taken)
+  if not start_col then start_col, start_row = pref_col, pref_row end
+  taken[#taken + 1] = { start_col, start_row }
 
   -- View 1 is the events-driven lead pet (the pet.lua singleton); any extras
   -- are independent instances that share the species' size/pace/personality.
@@ -582,8 +643,11 @@ function M.show()
   state.views = { { pet = pet.singleton(), cache = {}, cur_img = nil, frame_idx = 1 } }
   local span = math.max(1, state.float_cols - config.width)
   for i = 2, config.count do
-    local sc = math.floor(span * (i - 1) / config.count)
-    local inst = pet.new(sc, start_row)
+    local pc = math.floor(span * (i - 1) / config.count)
+    local sc, sr = find_free_spot(pc, start_row, taken)
+    if not sc then sc, sr = pc, start_row end
+    taken[#taken + 1] = { sc, sr }
+    local inst = pet.new(sc, sr)
     inst:set_walk_period(config.walk_period or 2)
     if config.transitions then inst:set_transitions(config.transitions) end
     state.views[i] = { pet = inst, cache = {}, cur_img = nil, frame_idx = 1 }
@@ -600,6 +664,8 @@ function M.show()
     end
   end
 
+  state.image_mod = image
+  state.paused = false
   state.last_motion = now_ms()  -- animate for a beat, then settle if idle
   start_timer(image)
 
@@ -622,8 +688,38 @@ function M.say(text, duration_ms)
   bubble.show(text, row, pet_left_col, duration_ms)
 end
 
+-- Stop animating but leave everything on screen and in place. Used when nvim
+-- loses focus (app switch, tmux window/session switch): we don't want to keep
+-- issuing Kitty placements at a terminal that isn't showing us, but tearing
+-- the float down instead — which is what this replaced — made the pets vanish
+-- whenever you looked at another window and respawned them in the starting
+-- corner when you came back.
+function M.pause()
+  if state.paused then return end
+  state.paused = true
+  stop_timer()
+end
+
+function M.resume()
+  if not state.paused then return end
+  state.paused = false
+  if not (state.win and vim.api.nvim_win_is_valid(state.win)) then return end
+
+  -- The terminal may have dropped our placements while we were away (tmux
+  -- clears images for inactive windows), so force a full redraw rather than
+  -- letting render_view skip it as an unchanged no-op.
+  for _, view in ipairs(state.views) do
+    view.last_path, view.last_x, view.last_y = nil, nil, nil
+  end
+  state.last_motion = now_ms()
+  if state.image_mod then start_timer(state.image_mod) end
+end
+
+function M.is_paused() return state.paused == true end
+
 function M.hide()
   stop_timer()
+  state.paused = false
   bubble.hide()
   clear_all_views()
   clear_object_image()
@@ -675,7 +771,10 @@ end
 -- (unblocked + inside the float bounds) and returns the corresponding pet
 -- (col, row) plus the facing toward the cursor. Returns nil when the
 -- cursor's neighbourhood is fully blocked or off the float.
-local WATCH_SEARCH_RADIUS = 8
+-- Reaches further than it used to: the pet now needs a whole sprite-sized
+-- clear rectangle rather than one free cell, and next to the line you're
+-- editing that's usually a few cells further out.
+local WATCH_SEARCH_RADIUS = 14
 function M.cursor_watch_target()
   if not (state.float_row and state.float_col) then return nil end
   local foot_dx = math.floor(config.width / 2)
@@ -696,13 +795,12 @@ function M.cursor_watch_target()
     for _, off in ipairs(offsets) do
       local fr = cur_r + off[1]   -- candidate feet screen row
       local fc = cur_c + off[2]   -- candidate feet screen col
-      if not blocked.is_blocked(fr, fc) then
-        local col = fc - state.float_col - foot_dx
-        local row = fr - state.float_row - foot_dy
-        if col >= 0 and col <= col_max and row >= 0 and row <= row_max then
-          local face = (cur_c > fc) and "right" or "left"
-          return col, row, face
-        end
+      local col = fc - state.float_col - foot_dx
+      local row = fr - state.float_row - foot_dy
+      if col >= 0 and col <= col_max and row >= 0 and row <= row_max
+          and not footprint_blocked(col, row) then
+        local face = (cur_c > fc) and "right" or "left"
+        return col, row, face
       end
     end
   end
@@ -818,6 +916,26 @@ function M.spawn_object(type, x)
   }
   return target_row
 end
+
+-- Send the whole flock after the object, not just the events-driven lead pet.
+-- Each extra pet aims a sprite-width to the side of the ball, alternating
+-- left and right, so they converge on it instead of stacking on one cell.
+-- Returns true when at least one pet was free to start running.
+function M.approach_object_all(x, target_row, ticks)
+  local col_max = math.max(0, effective_cols() - config.width)
+  local started = false
+  for i, view in ipairs(state.views) do
+    local slot = math.floor(i / 2)
+    local side = (i % 2 == 0) and 1 or -1
+    local target = x + side * slot * (config.width + 1)
+    target = math.max(0, math.min(target, col_max))
+    if view.pet:approach_to(target, ticks, target_row) then started = true end
+  end
+  return started
+end
+
+-- True while any pet is still busy with the current object.
+function M.any_object_busy() return any_object_busy() end
 
 function M.set_pet(name)
   local sd = SPECIES[name]

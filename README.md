@@ -191,16 +191,21 @@ The pet stays in its corner but reacts to your editing rhythm:
   rather than constantly crowding the cursor. Reuses the walk → peek
   sprites; on arrival it faces toward the cursor.
 - **Environment objects** — every ~3 minutes (±60s jitter), a ball appears
-  somewhere in the wander box. The pet walks over to it (using the walk
-  sprite), plays the species swipe animation for ~3 seconds, then the
-  ball disappears and normal wandering resumes. Only one object is active
-  at a time, and the timer is skipped while the pet is busy or asleep.
-- **Focus loss** — `FocusLost` (e.g. tmux pane move, app switch) tears
-  the float down completely; `FocusGained` brings it back after a short
-  defer. This is more aggressive than image.nvim's
-  `editor_only_render_when_focused` because it also drops the cached
-  Kitty placements, which prevents stale-image build-up that can freeze
-  WezTerm + tmux on long sessions.
+  somewhere in the wander box. **Every pet on screen** runs for it, fanning
+  out around the ball so they converge rather than stack, plays the species
+  swipe animation for ~3 seconds, and the ball disappears once the last one
+  is done. Only one object is active at a time, and the timer is skipped
+  while the pet is busy or asleep.
+- **Focus loss** — `FocusLost` (e.g. tmux window/session switch, app
+  switch) pauses the animation; `FocusGained` resumes it and forces one
+  full redraw, because tmux drops images for inactive windows. The pets
+  stay visible and keep their position, action and mood — nothing is torn
+  down. Pausing is enough to stop stale Kitty placements building up,
+  since a paused pet issues no draws at all.
+
+  If pets vanish when you switch to another application, that's
+  image.nvim's `editor_only_render_when_focused` clearing its images —
+  set it to `false`.
 
 All of this reuses the existing idle / lie sprites — no new assets.
 
@@ -254,28 +259,37 @@ The pet is built to be ambient, not a distraction:
   typing or scrolling, the pets freeze completely (no motion, no redraws)
   and spring back to life the instant you do anything. Every Kitty redraw
   briefly nudges the terminal cursor, so holding still while you read a
-  screenful of code is what actually stops the cursor from flickering. Tune
-  it with `settle_ms` (0 disables — pets always animate).
+  screenful of code is what actually stops the cursor from flickering.
+
+  The flip side is that pets only move while you're touching the keyboard.
+  If you'd rather have them roaming all the time, set `settle_ms = 0` — at
+  the cost of some terminals flickering the text cursor while you read.
 - **Calm cursor** — even while active, a pet is only redrawn when it
   actually moves or its frame changes; a resting pet breathes about once a
   second rather than every frame.
 - **Never covers your cursor while typing** — if a pet would be drawn over
   the insertion point in insert mode, that frame is skipped, so it never
   hides what you're writing.
-- **Avoids your code** — pets only put their feet on empty cells, never on
-  text, signs, numbers or sidebar content.
+- **Avoids your code** — a pet only stands where its *entire sprite*
+  footprint is clear, not just the cell under its feet, so its body never
+  covers a line. The blocked map includes text, signs, numbers, fold
+  columns, end-of-line virtual text (diagnostics), inlay hints and sidebar
+  content, and it tracks wrapped lines, closed folds and `virt_lines`
+  correctly rather than assuming one screen row per buffer line.
 - **One bounded image per frame per pet** — sprite placements are reused and
   repositioned rather than re-transmitted per cell, so a long session
   doesn't pile up Kitty images.
-- **Timers only run while visible** — toggling the pet off (or losing focus)
-  stops all background work.
+- **Timers only run while visible** — toggling the pet off stops all
+  background work; losing focus pauses the animation timer.
 
 ## Known limitations
 
 - **tmux window switching may leave a "ghost" frame** at the pet's last
   position. This is a tmux + Kitty Graphics Protocol limitation (tmux doesn't
-  virtualize the graphics layer). Workaround: run `:Pets` twice (off → on) to
-  clear the cache and redraw cleanly.
+  virtualize the graphics layer). `FocusGained` forces a full redraw, which
+  clears it in most cases; if one lingers, run `:Pets` twice (off → on).
+  Requires `focus-events on` in `tmux.conf` — without it nvim never learns
+  that the window came back.
 
 ## Roadmap
 

@@ -40,11 +40,9 @@ local FOLLOW_JITTER_S = 15          -- ± jitter
 local FOLLOW_RECENT_ACTIVITY_S = 20 -- only follow if the user edited within this window
 local WATCH_TICKS = 16              -- ~2.6s of watching the cursor once arrived
 local ACTIVITY_THROTTLE_S = 1       -- record_activity at most once per second
-local FOCUS_RESHOW_DELAY_MS = 150   -- defer auto-show after FocusGained
 
 local last_activity_at = os.time()
 local last_recorded_at = 0
-local was_visible_before_blur = false
 
 local idle_timer = nil
 local wiggle_timer = nil
@@ -52,7 +50,6 @@ local swipe_timer = nil
 local object_timer = nil
 local follow_timer = nil
 local pomodoro_timer = nil
-local focus_reshow_timer = nil
 
 local prev_error_count = 0          -- for diagnostic-change reactions
 
@@ -175,7 +172,8 @@ local function try_spawn_object()
   local x = renderer.random_object_x(OBJECT_MIN_DISTANCE)
   local target_row = renderer.spawn_object("ball", x)
   if target_row then
-    pet.approach_to(x, OBJECT_INTERACT_TICKS, target_row)
+    -- The whole flock runs for it, not only the lead pet.
+    renderer.approach_object_all(x, target_row, OBJECT_INTERACT_TICKS)
     mood.add(MOOD_GAIN_PLAY)
   end
 end
@@ -189,7 +187,8 @@ local function throw_ball()
   local x = renderer.cursor_object_x()
   local target_row = renderer.spawn_object("ball", x)
   if target_row then
-    pet.approach_to(x, OBJECT_INTERACT_TICKS, target_row)
+    -- Every pet on screen races for the ball, fanned out around it.
+    renderer.approach_object_all(x, target_row, OBJECT_INTERACT_TICKS)
     mood.add(MOOD_GAIN_PLAY)
   end
 end
@@ -268,9 +267,7 @@ end
 
 local function stop_all_timers()
   stop_lifestyle_timers()
-  stop_timer(focus_reshow_timer)
   stop_timer(pomodoro_timer)
-  focus_reshow_timer = nil
   pomodoro_timer = nil
 end
 
@@ -293,28 +290,22 @@ local function start_pomodoro(minutes)
   end))
 end
 
--- On focus loss (tmux pane move, app switch, etc.) we tear the float
--- down completely so image.nvim's Kitty placement doesn't accumulate
--- stale state during terminal redraws — that's what was producing the
--- "ghost copy + freeze" symptom. We remember whether the pet was on
--- and bring it back automatically when focus returns.
+-- On focus loss (tmux window/session switch, app switch, etc.) we stop the
+-- animation but leave the pets exactly where they stand.
+--
+-- This used to hide the float outright and re-show it on FocusGained, which
+-- was aimed at stopping stale Kitty placements from piling up while the
+-- terminal redraws. It had two bad side effects: the pets vanished the moment
+-- you looked at another window, and coming back ran the full show() path
+-- again, which respawns every pet in the starting corner. Pausing keeps the
+-- placement count from growing just as well — we simply stop issuing new
+-- draws — while preserving position, action and mood.
 local function on_focus_lost()
-  if not renderer.is_visible() then
-    was_visible_before_blur = false
-    return
-  end
-  was_visible_before_blur = true
-  pcall(renderer.hide)
+  pcall(renderer.pause)
 end
 
 local function on_focus_gained()
-  if not was_visible_before_blur then return end
-  was_visible_before_blur = false
-  stop_timer(focus_reshow_timer)
-  focus_reshow_timer = vim.uv.new_timer()
-  focus_reshow_timer:start(FOCUS_RESHOW_DELAY_MS, 0, vim.schedule_wrap(function()
-    pcall(renderer.show)
-  end))
+  pcall(renderer.resume)
 end
 
 function M.setup()
