@@ -250,7 +250,29 @@ local function tick_approaching(s, bounds)
   end
 end
 
+-- Text can appear *under* a pet that is standing still — you type a long
+-- line right where it happens to be resting — and nothing in the wander
+-- logic would notice, because the footprint is only ever checked when the
+-- pet tries to move. It would sit on top of your code until it next decided
+-- to walk, which breaks the one thing this plugin promises.
+--
+-- So: the moment a pet's own footprint stops being clear, move it. A single
+-- step is enough when a line merely grew; when the whole neighbourhood
+-- filled up, step_8way finds no candidate and relocates instead. Pets in
+-- the middle of walking to or playing with an object are left alone — they
+-- have a destination, and get re-checked when they're done.
+local function tick_displaced(s, bounds)
+  if not (bounds.is_blocked and bounds.is_blocked(s.col, s.row)) then
+    return false
+  end
+  if s.action == "approaching" or s.action == "interacting" then return false end
+  if s.action == "sleep" then s.action = "idle" end
+  step_8way(s, bounds)
+  return true
+end
+
 local function do_tick(s, bounds)
+  if tick_displaced(s, bounds) then return end
   if s.action == "approaching" then return tick_approaching(s, bounds) end
   if s.action == "peek"
       or s.action == "wiggle"
