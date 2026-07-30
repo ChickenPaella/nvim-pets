@@ -371,6 +371,7 @@ end
 -- applied at render time (img:render({ x, y })), so a frame visited at many
 -- cells still costs a single object/placement per pet.
 local function get_image(view, idx, image_mod, path)
+  if not path then return nil end
   local img = view.cache[path]
   if not img then
     img = image_mod.from_file(path, {
@@ -495,6 +496,13 @@ local function render_view(view, idx, image_mod, cur_r, cur_c)
     end
   end
 
+  -- frame_idx is only wrapped on the ticks where it actually advances, but
+  -- the animation set can change under it at any time — and the sets have
+  -- different lengths (fox walk has 8 frames, idle has 5). Stop walking with
+  -- frame_idx at 6..8 and the idle set indexes past its end, which used to
+  -- hand get_image a nil path and blow up the whole timer callback.
+  if view.frame_idx > #set_frames then view.frame_idx = 1 end
+
   local path = set_frames[view.frame_idx]
   -- Nothing changed since the last draw → don't touch the terminal at all.
   -- Every Kitty placement nudges the real cursor (move → draw → restore),
@@ -503,6 +511,7 @@ local function render_view(view, idx, image_mod, cur_r, cur_c)
   if path == view.last_path and not moved then return end
 
   local img = get_image(view, idx, image_mod, path)
+  if not img then return end
   pcall(function() img:render({ x = x, y = y }) end)
   if view.cur_img and view.cur_img ~= img then
     pcall(function() view.cur_img:clear() end)

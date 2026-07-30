@@ -1,13 +1,17 @@
 -- nvim-pets · Demo Day
 --
---   BEAT 1   <leader>pp                    ペットが出る。文字の間だけ歩く
---   BEAT 2   x  →  u                       エラー「!?」 / 直すと「yay!」
---   BEAT 3   :PetsCount 4  →  <leader>pb   全員でボールを追う
---   BEAT 4   <leader>pf  →  :PetsStatus    幸福度は閉じても残る
+--   BEAT 1   <leader>pp                     pet appears, walks between text
+--   BEAT 2   x  ->  u                       error "!?"  /  fixed "yay!"
+--   BEAT 3   :PetsCount 4  ->  <leader>pb   the whole flock chases the ball
+--   BEAT 4   <leader>pf  ->  :PetsStatus    happiness survives a restart
+--
+-- The ragged right margin below is deliberate: it is what makes the pet
+-- visibly thread between the text instead of walking over open space.
 
 local M = {}
 
--- 端末の文字マスは横1に対して縦2なので、N×M マスで描くと画面では N:2M の比率になります
+-- A terminal cell is twice as tall as it is wide, so an N x M block of cells
+-- renders the image at N : 2M. The fox is 92x75, which lands on 7 x 3 cells.
 local CELL_ASPECT = 2
 
 local defaults = { species = "fox", count = 1, fps = 6 }
@@ -18,7 +22,8 @@ local function clamp(v, lo, hi)
   return v
 end
 
--- スプライト全体（7x3 = 21マス）が空いているかを見る。足元の1マスだけ見ていた頃は体が乗っていた
+-- The whole 7x3 = 21 cell footprint has to be clear. Checking only the cell
+-- under its feet is what used to let the pet's body sit on top of code.
 local function footprint_is_clear(grid, col, row, w, h)
   for r = row, row + h - 1 do
     for c = col, col + w - 1 do
@@ -33,7 +38,9 @@ function M.setup(opts)
   return clamp(opts.count or defaults.count, 1, 6), CELL_ASPECT, footprint_is_clear
 end
 
--- ▼ BEAT 2 ─ カーソルはこの行の最後の ")" の上にあります。 x で消して u で戻す
+-- BEAT 2 -- the cursor is already on the last ")" of the line below.
 local ready = clamp(M.setup({ count = 3 }), 1, 6)
 
 return M, ready
+----------------------------------------------------------------------
+-----------------------------------------------------------

@@ -16,7 +16,7 @@ DEMO_FILE="$DEMO_DIR/demo.lua"
 MOOD_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/nvim-pets-mood.json"
 PLUGIN_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/nvim-pets"
 
-BREAK_LINE=37       # the line holding the ")" for beat 2
+BREAK_LINE=42       # the line holding the ")" for beat 2
 BREAK_COL=49        # column of that ")"
 
 if [[ -t 1 ]]; then
