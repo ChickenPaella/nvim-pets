@@ -54,3 +54,17 @@ Kitty Graphics Protocol 패킷(`ESC _ G`)이 실제로 전송되는지 pty 출�
   않으므로 파일을 열고 3초 기다린 뒤 시작하세요.
 - 알림 팝업은 floating window 라서 blocked 그리드에서 제외됩니다. 펫이
   그 아래로 들어가 가려질 수 있으니 공유 전에 지워두세요.
+
+## 녹화한 클립
+
+라이브 시연 대신(또는 백업으로) 쓸 수 있는 루프 GIF 4개를 `tools/` 로
+만들 수 있습니다. Google 슬라이드에 넣으면 발표 모드에서 자동 반복됩니다.
+
+| 클립 | 길이 | 보여주는 것 |
+|---|---|---|
+| `01-avoids-code.gif` | 14.0초 | 코드를 피해 걷고, 서 있는 자리에 코드가 오면 비킨다 |
+| `02-reacts.gif` | 6.8초 | `)` 를 지우면 「!?」, 되돌리면 「yay!」 |
+| `03-flock-ball.gif` | 6.7초 | 공을 던지면 4마리가 전원 출동 |
+| `04-happiness.gif` | 4.5초 | 먹이 → `happiness 99/100 (happy)` |
+
+만드는 방법과 원리는 [tools/README.md](tools/README.md) 를 보세요.
