@@ -93,6 +93,14 @@ needs `processor = "magick_cli"` (or the default `magick` luarock) and the
 {
   "ChickenPaella/nvim-pets",
   dependencies = { "3rd/image.nvim" },
+  -- `cmd` matters: with only `keys`, the plugin stays unloaded until you
+  -- press one of them, so typing `:Pets` first fails with "Not an editor
+  -- command". Listing the commands lets them load it too.
+  cmd = {
+    "Pets", "PetsHelp", "PetsState", "PetsStatus",
+    "PetsThrow", "PetsFeed", "PetsPomodoro",
+    "PetsType", "PetsCount", "PetsResize", "PetsArea", "PetsMove",
+  },
   keys = { { "<leader>pp", "<cmd>Pets<cr>", desc = "Pets: toggle" } },
   config = function()
     require("pets").setup({
@@ -100,9 +108,11 @@ needs `processor = "magick_cli"` (or the default `magick` luarock) and the
       pet    = "fox",          -- "fox" | "panda" | "dog" | "turtle"
       count  = 1,              -- how many pets roam at once (1-6)
       settle_ms = 1200,        -- freeze the pets after this idle time (0 = never)
-      width  = 11,             -- sprite width in cells (overrides species default)
-      height = 5,              -- sprite height in cells (overrides species default)
-      fps    = 8,
+      -- width / height default to the species' own cell size (fox is 7x3),
+      -- not to any fixed number. Set them only to override that.
+      width  = 7,
+      height = 3,
+      fps    = 6,
       area = {
         corner = "br",         -- "br" | "bl" | "tr" | "tl"
         cols   = 0,            -- 0 = auto: cover most of the editor width
